@@ -4,7 +4,7 @@ A personal team of AI agents that keeps working on your laptop.
 
 You create specialist agents, give each one a job, and leave them running on a schedule. Each agent carries its work from run to run, shares results in its own Shared tab, and asks you only when it really needs to. Agents can ask each other for help and build up a shared memory of what they learn about you. Everything runs locally; you manage it from your browser.
 
-Free for personal and other noncommercial use under the [PolyForm Strict License 1.0.0](LICENSE). Business and other commercial use requires a paid license: contact emrah@diril.org. Inspired by OpenMausBot, Instinct, and Grok Bot.
+Free for personal and other uses permitted by the [PolyForm Strict License 1.0.0](LICENSE). Commercial use outside those permissions requires a separate paid license: contact emrah@diril.org. Inspired by OpenMausBot, Instinct, and Grok Bot.
 
 ## Prerequisites
 
