@@ -1,0 +1,15 @@
+_**_/
+
+.DS_Store
+*.db*
+*.log
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated at build time from Git history (build_backend/versioning.py)
+src/qubotu/_version.py
+*.egg-info/
+build/
+dist/

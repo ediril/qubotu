@@ -1,0 +1,24 @@
+<header class="page-head agent-head">
+  <div>
+    <h1><span class="dot dot-{{ agent.state }}"></span> {{ agent.name }} <span class="pill pill-{{ agent.state }}">{{ agent.state }}</span></h1>
+    <p class="muted">{{ agent.specialty or "No job set" }}</p>
+    <p class="muted small">
+      {{ agent.provider }}{% if agent.model %} · {{ agent.model }}{% endif %}
+      · {% if agent.schedule_minutes %}every {{ agent.schedule_minutes }} min{% else %}manual runs{% endif %}
+      {% if agent.status == 'active' and agent.next_run_at %} · next run {{ agent.next_run_at | ago }}{% endif %}
+      · last run {{ agent.last_run_at | ago }}
+    </p>
+  </div>
+  <div class="head-actions">
+    {% if agent.state in ('running', 'queued') %}
+    <form method="post" action="/agents/{{ agent.id }}/interrupt"><button class="btn" type="submit">Stop run</button></form>
+    {% else %}
+    <form method="post" action="/agents/{{ agent.id }}/run"><button class="btn" type="submit">Run now</button></form>
+    {% endif %}
+    {% if agent.status == 'paused' %}
+    <form method="post" action="/agents/{{ agent.id }}/resume"><button class="btn primary" type="submit">Resume</button></form>
+    {% else %}
+    <form method="post" action="/agents/{{ agent.id }}/pause"><button class="btn" type="submit">Pause</button></form>
+    {% endif %}
+  </div>
+</header>

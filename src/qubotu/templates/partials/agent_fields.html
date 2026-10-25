@@ -1,0 +1,69 @@
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+<form method="post" action="{{ action }}" class="form">
+  <label>Name
+    <input name="name" value="{{ agent.name if agent else '' }}" required placeholder="e.g. Scout" pattern="[A-Za-z][A-Za-z0-9_\-]{0,31}">
+    <span class="hint">No spaces, so other agents can ask it for help by name.</span>
+  </label>
+  <label>Job
+    <textarea name="goals" rows="6" required placeholder="What should it keep working on? e.g. Track new releases of local AI agent tools and share the notable ones with a one-line take. Skip minor patch releases.">{{ agent.goals if agent else '' }}</textarea>
+    <span class="hint">The first line is its short summary, which other agents see when deciding who to ask for help.</span>
+  </label>
+  <details class="more" {{ 'open' if error and agent and agent.provider == 'fireworks' }}>
+    <summary>Model and schedule
+      <span class="muted small">
+        · {{ (agent.model if agent and agent.model else 'Codex default') }}
+        · {% set current = agent.schedule_minutes if agent else default_schedule %}{% for m, label in schedules %}{% if m == current %}{{ label | lower }}{% endif %}{% endfor %}
+      </span>
+    </summary>
+    <div class="form more-body">
+      <div class="form-row">
+        <label>Provider
+          <select name="provider" data-provider>
+            {% for key, label in providers.items() %}
+            <option value="{{ key }}" {{ 'selected' if agent and agent.provider == key }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Model
+          <input name="model" value="{{ agent.model if agent else '' }}" list="models-openai" data-model placeholder="Default">
+          <span class="hint" data-model-hint>Leave empty to use your Codex default.</span>
+        </label>
+      </div>
+      <datalist id="models-openai">
+        {% for m in models %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
+      </datalist>
+      <datalist id="models-fireworks">
+        {% for m in fireworks_models %}<option value="{{ m }}"></option>{% endfor %}
+      </datalist>
+      <label>Schedule
+        <select name="schedule_minutes">
+          {% set ns = namespace(found=false) %}
+          {% for minutes, label in schedules %}
+            {% if minutes == current %}{% set ns.found = true %}{% endif %}
+            <option value="{{ minutes }}" {{ 'selected' if minutes == current }}>{{ label }}</option>
+          {% endfor %}
+          {% if not ns.found %}<option value="{{ current }}" selected>Every {{ current }} minutes</option>{% endif %}
+        </select>
+        <span class="hint">How often it works on its own. You can always chat with it or run it now.</span>
+      </label>
+    </div>
+  </details>
+  {% set all_sites = site_list() %}
+  {% if all_sites %}
+  {% set chosen = agent.site_ids if agent and agent.site_ids is defined else (granted_site_ids(agent.id) if agent and agent.id else []) %}
+  <details class="more">
+    <summary>Sites it can use as you
+      <span class="muted small">· {{ all_sites | selectattr('id', 'in', chosen) | map(attribute='host') | join(', ') or 'none' }}</span>
+    </summary>
+    <div class="more-body checks">
+      {% for s in all_sites %}
+      <label class="check"><input type="checkbox" name="sites" value="{{ s.id }}" {{ 'checked' if s.id in chosen }}> {{ s.host }}</label>
+      {% endfor %}
+      <span class="hint">It browses these logged in as you, read-only. Log in to more sites in Settings.</span>
+    </div>
+  </details>
+  {% endif %}
+  <div class="form-actions">
+    <button class="btn primary" type="submit">{{ 'Save' if agent and agent.id else 'Create agent' }}</button>
+  </div>
+</form>

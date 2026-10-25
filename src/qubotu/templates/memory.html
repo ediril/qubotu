@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Shared memory · Qubotu{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Shared memory</h1>
+  <p class="muted">What your agents know about you. Every agent can read and add to it. Pinned memories are always included in their context. Correct or remove anything that's wrong.</p>
+</header>
+<section class="section">
+  <form method="post" action="/memory" class="memory-add">
+    <textarea name="text" rows="3" required placeholder="Add something you want all agents to know…" data-mod-enter></textarea>
+    <button class="btn primary" type="submit">Add</button>
+  </form>
+</section>
+<section class="section" hx-get="/partials/memory" hx-trigger="refresh" data-refresh="memory">
+  {% include "partials/memory_list.html" %}
+</section>
+{% endblock %}

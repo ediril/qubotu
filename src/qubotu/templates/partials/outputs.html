@@ -1,0 +1,14 @@
+<div hx-post="/agents/{{ agent_id }}/outputs/seen" hx-trigger="load" hx-swap="none"></div>
+<div class="toolbar">
+  <div class="seg">
+    <a href="#" hx-get="/agents/{{ agent_id }}/outputs?show=active" hx-target="closest [data-refresh]" class="{{ 'active' if show == 'active' }}">Active</a>
+    <a href="#" hx-get="/agents/{{ agent_id }}/outputs?show=all" hx-target="closest [data-refresh]" class="{{ 'active' if show == 'all' }}">All</a>
+  </div>
+</div>
+<div class="outputs">
+  {% for o in outputs %}
+    {% include "partials/output_card.html" %}
+  {% else %}
+    <p class="muted center pad">Nothing here yet. Results the agent shares with you, and questions it asks, appear here.</p>
+  {% endfor %}
+</div>

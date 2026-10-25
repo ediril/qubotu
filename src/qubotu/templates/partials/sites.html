@@ -1,0 +1,15 @@
+{% if site_error %}<div class="alert">{{ site_error }}</div>{% endif %}
+{% for s in sites %}
+<div class="site-row">
+  <span class="row-title">{{ s.host }}</span>
+  <span class="muted small">
+    {% if s.id in logging_in %}Log in in the Chrome window, then close it.
+    {% elif s.logged_in_at %}Logged in {{ s.logged_in_at | ago }}
+    {% else %}Not logged in yet{% endif %}
+  </span>
+  {% if s.id not in logging_in %}
+  <form method="post" action="/sites/{{ s.id }}/login"><button class="btn small ghost" type="submit">Log in again</button></form>
+  {% endif %}
+  <form method="post" action="/sites/{{ s.id }}/delete"><button class="btn small ghost" type="submit">Remove</button></form>
+</div>
+{% endfor %}

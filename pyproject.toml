@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "qubotu_build"
+backend-path = ["build_backend"]
+
+[project]
+name = "qubotu"
+dynamic = ["version"]
+description = "Persistent personal agents running locally, managed from the browser."
+readme = "PYPI.md"
+license = "LicenseRef-PolyForm-Strict-1.0.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Emrah Diril" }]
+keywords = ["agents", "ai", "codex", "local", "assistant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "markdown-it-py>=3.0",
+    "numpy>=1.26",
+    "fastembed>=0.4",
+    "playwright>=1.48",
+]
+
+[project.scripts]
+qubotu = "qubotu.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "qubotu._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+qubotu = ["templates/*.html", "templates/partials/*.html", "static/*"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

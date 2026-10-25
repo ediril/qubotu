@@ -1,0 +1,41 @@
+<table class="table memory-table">
+  <thead><tr><th></th><th>Memory</th><th>Kind</th><th>From</th><th>Updated</th><th></th></tr></thead>
+  <tbody>
+  {% for m in memories %}
+    {% if edit == m.id %}
+    <tr>
+      <td></td>
+      <td colspan="5">
+        <form method="post" action="/memory/{{ m.id }}" class="memory-edit">
+          <textarea name="text" rows="{{ [m.text.count('\n') + 2, 12] | min }}" required data-mod-enter>{{ m.text }}</textarea>
+          <div class="inline-form">
+            <select name="kind">
+              {% for k in ('fact', 'preference', 'project') %}<option value="{{ k }}" {{ 'selected' if m.kind == k }}>{{ k }}</option>{% endfor %}
+            </select>
+            <label class="check"><input type="checkbox" name="pinned" value="1" {{ 'checked' if m.pinned }}> pinned</label>
+            <button class="btn primary small" type="submit">Save</button>
+            <a class="btn ghost small" href="/memory">Cancel</a>
+          </div>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr>
+      <td>
+        <form method="post" action="/memory/{{ m.id }}/pin"><button class="pin {{ 'pinned' if m.pinned }}" title="{{ 'Unpin' if m.pinned else 'Pin' }}" type="submit">●</button></form>
+      </td>
+      <td class="memory-text">{{ m.text }}</td>
+      <td><span class="kind kind-{{ m.kind }}">{{ m.kind }}</span></td>
+      <td class="muted small">{{ m.agent_name or 'You' }}</td>
+      <td class="muted small nowrap">{{ m.updated_at | ago }}</td>
+      <td class="nowrap">
+        <a class="btn small ghost" href="/memory?edit={{ m.id }}">Edit</a>
+        <form method="post" action="/memory/{{ m.id }}/delete" style="display:inline"><button class="btn small ghost" type="submit">Remove</button></form>
+      </td>
+    </tr>
+    {% endif %}
+  {% else %}
+    <tr><td colspan="6" class="muted">Nothing yet. Agents add memories as they learn about you, or add your own above.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

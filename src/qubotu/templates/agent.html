@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ agent.name }} · Qubotu{% endblock %}
+{% block content %}
+<div hx-get="/agents/{{ agent.id }}/header" hx-trigger="refresh" data-refresh="status agents">
+  {% include "partials/agent_header.html" %}
+</div>
+
+<nav class="tabs">
+  <a href="/agents/{{ agent.id }}" class="{{ 'active' if tab == 'chat' }}">Chat</a>
+  <a href="/agents/{{ agent.id }}?tab=shared" class="{{ 'active' if tab == 'shared' }}">Shared</a>
+  <a href="/agents/{{ agent.id }}?tab=settings" class="{{ 'active' if tab == 'settings' }}">Settings</a>
+</nav>
+
+{% if tab == 'chat' %}
+<div class="chat">
+  <div class="chat-scroll" id="chat-scroll">
+    <div hx-get="/agents/{{ agent.id }}/messages" hx-trigger="load, refresh" data-refresh="messages:agent:{{ agent.id }}" class="messages"></div>
+    <div class="stream" data-stream="agent:{{ agent.id }}"></div>
+  </div>
+  <form class="composer" hx-post="/agents/{{ agent.id }}/chat" hx-swap="none" data-composer>
+    <textarea name="text" rows="2" placeholder="Message {{ agent.name }}…  (Enter to send, Shift+Enter for a new line)" required></textarea>
+    <button class="btn primary" type="submit">Send</button>
+  </form>
+</div>
+
+{% elif tab == 'shared' %}
+<div hx-get="/agents/{{ agent.id }}/outputs" hx-trigger="load, refresh" data-refresh="outputs:{{ agent.id }}">
+  <p class="muted">Loading…</p>
+</div>
+
+{% else %}
+<div class="settings-grid">
+  <section class="section">
+    <h2>Agent setup</h2>
+    {% set action = "/agents/" ~ agent.id ~ "/edit" %}
+    {% include "partials/agent_fields.html" %}
+  </section>
+  <section class="section">
+    <h2>Controls</h2>
+    <div class="stack">
+      <form method="post" action="/agents/{{ agent.id }}/reset" data-confirm="Start a fresh Codex thread for {{ agent.name }}? Its chat log, outputs, and notes stay, but the model loses its conversation history.">
+        <button class="btn" type="submit">Start a fresh thread</button>
+        <p class="muted small">Use this if the agent's context gets confused, or after changing its provider.</p>
+      </form>
+      <form method="post" action="/agents/{{ agent.id }}/delete" data-confirm="Delete {{ agent.name }}, its chats, outputs, and working folder? This cannot be undone.">
+        <button class="btn danger" type="submit">Delete agent</button>
+      </form>
+    </div>
+    <h2>Recent runs</h2>
+    <table class="table">
+      <thead><tr><th>Trigger</th><th>Status</th><th>Started</th></tr></thead>
+      <tbody>
+      {% for r in runs %}
+        <tr><td>{{ r.trigger }}</td><td><span class="pill pill-{{ r.status }}">{{ r.status }}</span>{% if r.error %}<div class="small error-text">{{ r.error }}</div>{% endif %}</td><td class="nowrap">{{ r.started_at | ago }}</td></tr>
+      {% else %}
+        <tr><td colspan="3" class="muted">No runs yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted small">Working folder: <code>~/.qubotu/agents/{{ agent.id }}</code></p>
+  </section>
+</div>
+{% endif %}
+{% endblock %}

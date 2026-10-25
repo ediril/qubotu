@@ -1,0 +1,19 @@
+{% for m in messages %}
+  {% if m.role == 'user' %}
+  <div class="msg msg-user">
+    <div class="bubble">{{ m.text | md }}</div>
+    <div class="msg-time">{{ m.created_at | ago }}</div>
+  </div>
+  {% elif m.role == 'agent' %}
+  <div class="msg msg-agent {{ 'msg-commentary' if m.meta.phase == 'commentary' }}">
+    <div class="bubble">{{ m.text | md }}</div>
+    <div class="msg-time">{{ m.created_at | ago }}{% if m.meta.trigger and m.meta.trigger != 'chat' %} · {{ m.meta.trigger }}{% endif %}</div>
+  </div>
+  {% elif m.role == 'activity' %}
+  <div class="msg-activity">{{ m.text }}</div>
+  {% else %}
+  <div class="msg-system">{{ m.text | md }}<span class="msg-time"> · {{ m.created_at | ago }}</span></div>
+  {% endif %}
+{% else %}
+  <p class="muted center pad">No messages yet. Say hello, or give it something to work on.</p>
+{% endfor %}

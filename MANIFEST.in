@@ -1,0 +1,5 @@
+include version.json
+include build_backend/*.py
+include src/qubotu/_version.py
+include PYPI.md
+include LICENSE

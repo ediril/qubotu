@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}New agent · Qubotu{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>New agent</h1>
+  <p class="muted">Agents keep working on their responsibilities between runs, share results in their Shared tab, and ask you only when they need to.</p>
+</header>
+<section class="section narrow">
+  {% set action = "/agents" %}
+  {% include "partials/agent_fields.html" %}
+</section>
+{% endblock %}

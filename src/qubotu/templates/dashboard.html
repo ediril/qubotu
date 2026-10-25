@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>Dashboard</h1>
+</header>
+<div hx-get="/partials/dashboard" hx-trigger="load, refresh" data-refresh="status outputs requests agents">
+  <p class="muted">Loading…</p>
+</div>
+{% endblock %}

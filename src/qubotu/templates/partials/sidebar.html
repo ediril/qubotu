@@ -1,0 +1,13 @@
+<ul class="agent-list">
+  {% for a in agents %}
+  <li>
+    <a href="/agents/{{ a.id }}" class="agent-link" data-agent-nav="agent:{{ a.id }}">
+      <span class="dot dot-{{ a.state }}" title="{{ a.state }}"></span>
+      <span class="agent-link-name">{{ a.name }}</span>
+      {% if a.unseen %}<span class="badge">{{ a.unseen }}</span>{% endif %}
+    </a>
+  </li>
+  {% else %}
+  <li class="muted small pad">No agents yet.</li>
+  {% endfor %}
+</ul>

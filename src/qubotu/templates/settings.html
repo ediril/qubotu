@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Settings · Qubotu{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Settings</h1>
+</header>
+{% if saved %}<div class="notice">Saved.</div>{% endif %}
+<div class="settings-grid">
+  <section class="section">
+    <h2>Codex</h2>
+    {% if codex_error %}
+      <div class="alert">{{ codex_error }}</div>
+    {% endif %}
+    {% if account %}
+      <p>Signed in as <strong>{{ account.email or 'unknown' }}</strong>{% if account.planType %} ({{ account.planType }} plan){% endif %}.</p>
+      <p class="muted small">OpenAI agents use your ChatGPT subscription through Codex. To change accounts, run <code>codex login</code> in a terminal.</p>
+    {% else %}
+      <p>Codex isn't signed in or isn't reachable. Run <code>codex login</code> in a terminal, then reload this page.</p>
+    {% endif %}
+  </section>
+  <section class="section" id="sites">
+    <h2>Sites agents can use as you</h2>
+    <p class="muted small">Log in once in a Chrome window, and agents you allow can read the site as you. They can't post, like, or change anything there, and they never see your password.</p>
+    <div hx-get="/partials/sites" hx-trigger="refresh" data-refresh="sites">
+      {% include "partials/sites.html" %}
+    </div>
+    <form method="post" action="/sites" class="inline-form">
+      <input name="host" required placeholder="x.com" autocomplete="off">
+      <button class="btn primary" type="submit">Log in</button>
+    </form>
+  </section>
+  <section class="section">
+    <h2>Fireworks</h2>
+    <p class="muted small">Needed for agents that use open models such as Qwen and DeepSeek. The key is stored in <code>~/.qubotu/qubotu.db</code> and passed to Codex.</p>
+    <form method="post" action="/settings" class="form">
+      <label>API key
+        <input name="fireworks_api_key" type="password" placeholder="{{ 'A key is saved. Enter a new one to replace it.' if has_fireworks else 'fw_…' }}" autocomplete="off">
+      </label>
+      <div class="form-actions">
+        <button class="btn primary" type="submit">Save</button>
+        {% if has_fireworks %}<button class="btn ghost" type="submit" name="clear_fireworks" value="1">Remove key</button>{% endif %}
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% set data = o.data | fromjson %}
+<article class="card output output-{{ o.kind }} {{ 'output-high' if o.importance == 'high' and o.kind != 'question' }} {{ 'output-closed' if o.status in ('done', 'dismissed', 'answered') }}" id="output-{{ o.id }}">
+  <div class="card-meta">
+    <span class="kind kind-{{ o.kind }}">{{ o.kind }}</span>
+    {% if o.importance == 'high' and o.kind != 'question' %}<span class="pill pill-high">important</span>{% endif %}
+    {% if o.status in ('done', 'dismissed', 'answered') %}<span class="pill">{{ o.status }}</span>{% endif %}
+    <span class="muted">#{{ o.id }} · {{ o.created_at | ago }}</span>
+  </div>
+  <h3 class="card-title">{{ o.title }}</h3>
+
+  {% if o.body %}<div class="prose">{{ o.body | md }}</div>{% endif %}
+
+  {% if data.columns or data.rows %}
+  <div class="table-wrap">
+    <table class="table">
+      {% if data.columns %}<thead><tr>{% for c in data.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>{% endif %}
+      <tbody>{% for row in data.rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if data.url %}
+    {% if data.url.startswith('http://') or data.url.startswith('https://') %}
+    <p><a href="{{ data.url }}" target="_blank" rel="noopener noreferrer" class="ext-link">{{ data.url }}</a></p>
+    {% else %}
+    <p class="muted small">{{ data.url }}</p>
+    {% endif %}
+  {% endif %}
+
+  {% if o.kind == 'question' %}
+    {% if o.status == 'open' %}
+    <form class="answer" hx-post="/outputs/{{ o.id }}/answer" hx-target="#output-{{ o.id }}" hx-swap="outerHTML">
+      {% if data.options %}
+      <div class="options">
+        {% for opt in data.options %}<button class="btn" type="submit" name="answer" value="{{ opt }}">{{ opt }}</button>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="inline-form">
+        <input name="answer" placeholder="{{ 'Or type an answer…' if data.options else 'Your answer…' }}">
+        <button class="btn primary" type="submit">Answer</button>
+      </div>
+    </form>
+    {% else %}
+    <p class="answer-given"><strong>Your answer:</strong> {{ o.answer }}</p>
+    {% endif %}
+  {% else %}
+    <div class="output-actions">
+      {% if o.feedback %}<span class="muted small">Your feedback: {{ o.feedback }}{% if o.feedback_pending %} (delivered on its next run){% endif %}</span>{% endif %}
+      <form class="inline-form" hx-post="/outputs/{{ o.id }}/feedback" hx-target="#output-{{ o.id }}" hx-swap="outerHTML">
+        <input name="comment" placeholder="Feedback for the agent…">
+        <button class="btn small" type="submit" name="rating" value="Useful">Useful</button>
+        <button class="btn small" type="submit" name="rating" value="Not useful">Not useful</button>
+      </form>
+      {% if o.status not in ('done', 'dismissed') %}
+      <form hx-post="/outputs/{{ o.id }}/status" hx-target="#output-{{ o.id }}" hx-swap="outerHTML" class="inline-form">
+        <button class="btn small" type="submit" name="status" value="done">Done</button>
+        <button class="btn small ghost" type="submit" name="status" value="dismissed">Dismiss</button>
+      </form>
+      {% endif %}
+    </div>
+  {% endif %}
+</article>
