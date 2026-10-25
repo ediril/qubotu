@@ -4,7 +4,28 @@ A personal team of AI agents that keeps working on your laptop.
 
 You create specialist agents, give each one a job, and leave them running on a schedule. Each agent carries its work from run to run, shares results in its own Shared tab, and asks you only when it really needs to. Agents can ask each other for help and build up a shared memory of what they learn about you. Everything runs locally; you manage it from your browser.
 
-Free for personal and other uses permitted by the [PolyForm Strict License 1.0.0](LICENSE). Commercial use outside those permissions requires a separate paid license: contact emrah@diril.org. Inspired by OpenMausBot, Instinct, and Grok Bot.
+Inspired by OpenMausBot, Instinct, and Grok Bot.
+
+## License
+
+Qubotu is source-available under the [PolyForm Strict License 1.0.0](LICENSE).
+Use is free of charge for the purposes permitted by that license, including:
+
+- Any noncommercial purpose.
+- The personal uses listed in the license, such as personal study and hobby
+  projects, without any anticipated commercial application.
+- Use by charitable organizations, educational institutions, public research
+  organizations, public safety or health organizations, environmental protection
+  organizations, and government institutions, regardless of funding source or
+  obligations resulting from funding.
+
+This license grants no rights to modify or redistribute Qubotu or create works
+based on it. The full license governs; this summary does not grant additional
+permissions.
+
+Commercial use outside those permissions requires a separate paid license.
+Contact [Emrah Diril](mailto:emrah@diril.org) for pricing and a commercial
+agreement before beginning such use.
 
 ## Prerequisites
 
