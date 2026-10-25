@@ -130,8 +130,8 @@ uv run pytest                    # uses a fake Codex; no model calls
 - `src/qubotu/cli.py`: the `qubotu` command and the login service.
 
 ### Versioning
-Versions are `<major>.<work-day>.<increment>`, computed from Git history the same way as in traqen:
-- [`version.json`](version.json) sets the major number and its baseline commit. We're on major `0` (pre-release), counted from the first commit, `93572ae` ("basics", September 26, 2026).
+Versions are `<major>.<work-day>.<increment>`, computed from Git history:
+- [`version.json`](version.json) sets the major number and its baseline commit. We're on major `0` (pre-release), counted from the first commit, `d7a971d` ("qubotu: first public release", October 25, 2026).
 - The baseline day is `0`. Each later date with commits advances the work-day number by one, however many idle days pass.
 - The increment counts that date's commits, starting at `1`. Only first-parent history counts, using each commit's committer date.
 
