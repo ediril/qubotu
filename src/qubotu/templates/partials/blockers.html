@@ -1,0 +1,25 @@
+{% if blockers %}
+<div class="blockers" data-blocker-count="{{ blockers | length }}">
+  {% for b in blockers %}
+  <div class="blocker">
+    <span class="blocker-text">
+      <strong>{{ b.agent_name }}</strong> is blocked:
+      {% if b.kind == 'login' %}needs you to log in to <strong>{{ b.data.host }}</strong>{% if b.body %}. {{ b.body }}{% endif %}
+      {% else %}{{ b.title }}{% endif %}
+    </span>
+    {% if b.kind == 'login' %}
+      {% if b.logging_in %}
+      <span class="small">Log in in the Chrome window, then close it.</span>
+      {% else %}
+      <button class="btn small primary" hx-post="/outputs/{{ b.id }}/login" hx-swap="none">{{ 'Let ' ~ b.agent_name ~ ' use it' if b.action == 'grant' else 'Log in' }}</button>
+      <button class="btn small ghost" hx-post="/outputs/{{ b.id }}/decline" hx-swap="none">Not now</button>
+      {% endif %}
+    {% else %}
+    <a class="btn small primary" href="/agents/{{ b.agent_id }}?tab=shared#output-{{ b.id }}">Answer</a>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div data-blocker-count="0"></div>
+{% endif %}

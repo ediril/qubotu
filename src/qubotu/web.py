@@ -116,7 +116,9 @@ def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         ctx.setdefault("nav", "")
-        return templates.TemplateResponse(request, name, {"engine": engine, "agents": sidebar_agents(), **ctx})
+        return templates.TemplateResponse(
+            request, name, {"engine": engine, "agents": sidebar_agents(), "blockers": engine.blockers(), **ctx}
+        )
 
     def fragment(request: Request, name: str, **ctx) -> HTMLResponse:
         return templates.TemplateResponse(request, name, {"engine": engine, **ctx})
@@ -143,7 +145,7 @@ def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
     def attention() -> list[dict]:
         return db.all(
             "SELECT o.*, a.name AS agent_name FROM outputs o JOIN agents a ON a.id = o.agent_id "
-            "WHERE o.status = 'open' OR (o.status = 'new' AND o.importance = 'high') ORDER BY o.id DESC"
+            "WHERE o.blocking = 0 AND (o.status = 'open' OR (o.status = 'new' AND o.importance = 'high')) ORDER BY o.id DESC"
         )
 
     @app.get("/favicon.ico", include_in_schema=False)
@@ -164,7 +166,7 @@ def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
     async def dashboard_body(request: Request):
         recent = db.all(
             "SELECT o.*, a.name AS agent_name FROM outputs o JOIN agents a ON a.id = o.agent_id "
-            "WHERE o.kind != 'question' ORDER BY o.id DESC LIMIT 12"
+            "WHERE o.kind NOT IN ('question', 'login') ORDER BY o.id DESC LIMIT 12"
         )
         requests = db.all(
             "SELECT r.*, f.name AS from_name, t.name AS to_name FROM requests r "
@@ -315,6 +317,23 @@ def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
         if answer.strip():
             engine.answer_question(output_id, answer.strip())
         return output_card(request, output_id)
+
+    @app.get("/partials/blockers", response_class=HTMLResponse)
+    async def blockers_partial(request: Request):
+        return fragment(request, "partials/blockers.html", blockers=engine.blockers())
+
+    @app.post("/outputs/{output_id}/login")
+    async def output_login(output_id: int):
+        get_output(output_id)
+        engine.resolve_login(output_id)
+        engine.bus.refresh("sites", "status", "outputs")
+        return Response(status_code=204)
+
+    @app.post("/outputs/{output_id}/decline")
+    async def output_decline(output_id: int):
+        get_output(output_id)
+        engine.decline_login(output_id)
+        return Response(status_code=204)
 
     @app.post("/outputs/{output_id}/feedback", response_class=HTMLResponse)
     async def output_feedback(request: Request, output_id: int, rating: str = Form(""), comment: str = Form("")):

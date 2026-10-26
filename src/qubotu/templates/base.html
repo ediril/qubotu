@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Qubotu{% endblock %}</title>
+  <title>{% if blockers %}({{ blockers | length }}) {% endif %}{% block title %}Qubotu{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ static('favicon.svg') }}">
   <link rel="stylesheet" href="{{ static('app.css') }}">
   <script src="{{ static('htmx.min.js') }}"></script>
@@ -32,6 +32,9 @@
       </footer>
     </aside>
     <main class="main">
+      <div hx-get="/partials/blockers" hx-trigger="refresh" data-refresh="status outputs sites agents">
+        {% include "partials/blockers.html" %}
+      </div>
       {% block content %}{% endblock %}
     </main>
   </div>

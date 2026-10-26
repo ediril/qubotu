@@ -265,3 +265,60 @@ async def test_page_tools_use_the_runs_tab_and_close_it_after(engine, monkeypatc
     item = engine.db.one("SELECT id FROM inbox WHERE kind = 'chat'")["id"]
     assert calls == [("open", item, aid, "news.ycombinator.com"), ("close", item)]
     assert engine.codex.tool_results[-1] == ("Scout", "open_page", (True, "URL: news.ycombinator.com"))
+
+
+async def test_blocking_questions_and_login_requests_are_blockers(engine):
+    aid = make(engine)
+    engine.codex.scripts["Scout"] = [[
+        ("tool", "ask_user", {"question": "Which region?"}),
+        ("tool", "ask_user", {"question": "Which account should I use?", "blocking": True}),
+        ("tool", "ask_to_log_in", {"site": "https://www.X.com/home", "reason": "To read your AI list."}),
+        ("tool", "ask_to_log_in", {"site": "x.com", "reason": "Again."}),
+        ("say", "waiting"),
+    ]]
+    engine.chat(aid, "go")
+    await settle(engine)
+    blockers = engine.blockers()
+    assert [(b["kind"], b["title"]) for b in blockers] == [("question", "Which account should I use?"), ("login", "Log in to x.com")]
+    assert "already asked" in engine.codex.tool_results[3][2][1], "a second request for the same site isn't a new blocker"
+    assert engine.status(engine.db.agent(aid)) == "blocked"
+
+
+async def test_logging_in_grants_the_site_and_the_agent_carries_on(engine, monkeypatch):
+    opened = []
+    monkeypatch.setattr(engine.browser, "start_login", lambda site_id, on_done=None: opened.append((site_id, on_done)))
+    aid = make(engine)
+    oid, _ = engine.request_login(aid, "x.com", "To read your AI list.")
+    engine.resolve_login(oid)
+    [(site_id, on_done)] = opened
+    assert engine.blockers()[0]["id"] == oid, "still blocked while the login window is open"
+
+    engine.db.update("sites", site_id, logged_in_at="2026-10-25T00:00:00+00:00")
+    on_done()
+    await settle(engine)
+    assert engine.blockers() == []
+    assert [s["host"] for s in engine.browser.granted(aid)] == ["x.com"]
+    turns = [c[1]["input"][0]["text"] for c in engine.codex.calls if c[0] == "turn/start"]
+    assert "logged in to x.com" in turns[-1]
+
+
+async def test_a_site_already_logged_in_is_just_granted(engine, monkeypatch):
+    monkeypatch.setattr(engine.browser, "start_login", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no login window")))
+    site_id = engine.browser.add_site("x.com")
+    engine.db.update("sites", site_id, logged_in_at="2026-10-25T00:00:00+00:00")
+    aid = make(engine)
+    oid, _ = engine.request_login(aid, "x.com", "")
+    assert engine.blockers()[0]["action"] == "grant"
+    engine.resolve_login(oid)
+    await settle(engine)
+    assert engine.blockers() == [] and engine.browser.granted(aid)
+
+
+async def test_declining_a_login_tells_the_agent(engine):
+    aid = make(engine)
+    oid, _ = engine.request_login(aid, "x.com", "")
+    engine.decline_login(oid)
+    await settle(engine)
+    assert engine.blockers() == [] and engine.browser.granted(aid) == []
+    turns = [c[1]["input"][0]["text"] for c in engine.codex.calls if c[0] == "turn/start"]
+    assert "didn't log in to x.com" in turns[-1]

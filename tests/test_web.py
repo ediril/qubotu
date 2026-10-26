@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from qubotu.db import now
 from qubotu.web import create_app
 
 
@@ -125,3 +126,22 @@ def test_sites_connect_grant_and_remove(engine, monkeypatch):
         c.post(f"/agents/{aid}/edit", data={"name": "Scout", "goals": "x", "sites": [str(site["id"])]})
         c.post(f"/sites/{site['id']}/delete")
         assert engine.browser.sites() == [] and engine.browser.granted(aid) == []
+
+
+def test_blockers_show_on_every_page_apart_from_notifications(engine):
+    with client(engine) as c:
+        c.post("/agents", data={"name": "Scout", "goals": "Read my X list"})
+        aid = engine.db.agent_by_name("Scout")["id"]
+        engine.request_login(aid, "x.com", "To read your AI list.")
+        engine.db.insert("outputs", agent_id=aid, kind="finding", title="A finding", importance="high", created_at=now(), updated_at=now())
+        for path in ["/", "/memory", "/settings", f"/agents/{aid}"]:
+            page = c.get(path).text
+            assert "needs you to log in to <strong>x.com</strong>" in page, path
+            assert "<title>(1) " in page, path
+        assert "badge-blocked" in c.get("/partials/sidebar").text
+        dashboard = c.get("/partials/dashboard").text
+        assert "A finding" in dashboard and "Log in to x.com" not in dashboard, "blockers aren't mixed in with findings"
+
+        [b] = engine.blockers()
+        assert c.post(f"/outputs/{b['id']}/decline").status_code == 204
+        assert "is blocked" not in c.get("/partials/blockers").text

@@ -72,15 +72,22 @@ p { margin: 0 0 8px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; flex-shrink: 0; }
 .dot-running { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 25%, transparent); animation: pulse 1.4s infinite; }
 .dot-queued { background: var(--amber); }
+.dot-blocked { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent); }
 .dot-paused { background: transparent; border: 2px solid var(--muted); }
 @keyframes pulse { 50% { opacity: .45; } }
 .badge { background: var(--accent); color: var(--accent-text); border-radius: 999px; font-size: 11px; padding: 0 7px; font-weight: 600; }
+.badge-blocked { background: var(--red); color: #fff; }
+.pill-blocked { background: var(--red-soft); color: var(--red); }
+.blockers { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.blocker { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--red-soft); color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: 8px; padding: 10px 14px; }
+.blocker-text { flex: 1; min-width: 200px; }
 .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); text-transform: lowercase; vertical-align: middle; }
 .pill-running, .pill-done, .pill-completed { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
 .pill-queued, .pill-pending, .pill-high { background: var(--amber-soft); color: var(--amber); }
 .pill-failed, .pill-interrupted { background: var(--red-soft); color: var(--red); }
 .kind { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .kind-question { color: var(--amber); }
+.kind-login { color: var(--red); }
 .kind-finding, .kind-idea { color: var(--accent); }
 .kind-report, .kind-project { color: var(--green); }
 

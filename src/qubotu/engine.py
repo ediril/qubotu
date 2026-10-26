@@ -127,9 +127,69 @@ class Engine:
         runs = self.runs.get(agent["id"], [])
         if any(r.running for r in runs):
             return "running"
+        if self.db.value("SELECT 1 FROM outputs WHERE agent_id = ? AND status = 'open' AND blocking = 1", agent["id"]):
+            return "blocked"
         if runs:
             return "queued"
         return "paused" if agent["status"] == "paused" else "idle"
+
+    # Blockers: open questions or login requests the agent can't go on without
+
+    def blockers(self) -> list[dict]:
+        rows = self.db.all(
+            "SELECT o.*, a.name AS agent_name FROM outputs o JOIN agents a ON a.id = o.agent_id "
+            "WHERE o.status = 'open' AND o.blocking = 1 ORDER BY o.id"
+        )
+        for r in rows:
+            r["data"] = json.loads(r["data"]) if r["data"] else {}
+            if r["kind"] == "login":
+                site = self.db.one("SELECT * FROM sites WHERE host = ?", r["data"]["host"])
+                granted = site and self.db.value(
+                    "SELECT 1 FROM agent_sites WHERE agent_id = ? AND site_id = ?", r["agent_id"], site["id"]
+                )
+                # An agent that already has the site hit an expired login; otherwise a working login just needs granting.
+                r["action"] = "grant" if site and site["logged_in_at"] and not granted else "login"
+                r["logging_in"] = bool(site) and site["id"] in self.browser.logging_in
+        return rows
+
+    def request_login(self, agent_id: int, host: str, reason: str) -> tuple[int, bool]:
+        """Ask the user to log in to a site for this agent. Returns the request's id, and whether it's new."""
+        existing = self.db.one(
+            "SELECT id FROM outputs WHERE agent_id = ? AND kind = 'login' AND status = 'open' AND json_extract(data, '$.host') = ?",
+            agent_id, host,
+        )
+        if existing:
+            return existing["id"], False
+        ts = now()
+        oid = self.db.insert(
+            "outputs", agent_id=agent_id, kind="login", title=f"Log in to {host}", body=reason,
+            data=json.dumps({"host": host}), importance="high", status="open", blocking=1, created_at=ts, updated_at=ts,
+        )
+        self.bus.refresh(f"outputs:{agent_id}", "outputs", "status", "agents")
+        return oid, True
+
+    def resolve_login(self, output_id: int) -> None:
+        """Act on a login request: grant a site that's already logged in, or open the login window
+        and grant it once the user closes it. Either way the agent is told and carries on."""
+        o = self.db.one("SELECT * FROM outputs WHERE id = ? AND kind = 'login' AND status = 'open'", output_id)
+        if not o:
+            return
+        host = json.loads(o["data"])["host"]
+        action = next(b for b in self.blockers() if b["id"] == output_id)["action"]
+        site_id = self.browser.add_site(host)
+        self.db.run("INSERT OR IGNORE INTO agent_sites (agent_id, site_id) VALUES (?, ?)", o["agent_id"], site_id)
+        if action == "grant":
+            self.answer_question(output_id, f"You can use {host} now, logged in as the user.")
+            return
+        self.browser.start_login(
+            site_id, on_done=lambda: self.answer_question(output_id, f"The user logged in to {host}. You can use it now.")
+        )
+
+    def decline_login(self, output_id: int) -> None:
+        o = self.db.one("SELECT * FROM outputs WHERE id = ? AND kind = 'login'", output_id)
+        if o:
+            host = json.loads(o["data"])["host"]
+            self.answer_question(output_id, f"Not now: the user didn't log in to {host}. Carry on without it.")
 
     def create_agent(self, **fields) -> int:
         schedule = int(fields.get("schedule_minutes") or 0)
@@ -629,14 +689,14 @@ class Engine:
             self.enqueue(agent_id, "chat", text=text)
 
     def answer_question(self, output_id: int, answer_text: str) -> None:
-        q = self.db.one("SELECT * FROM outputs WHERE id = ? AND kind = 'question'", output_id)
+        q = self.db.one("SELECT * FROM outputs WHERE id = ? AND kind IN ('question', 'login')", output_id)
         if not q or q["status"] != "open":
             return
         with self.db.transaction():
             self.db.update("outputs", output_id, status="answered", answer=answer_text, updated_at=now())
-            self.post(f"agent:{q['agent_id']}", "user", f"Answered question #{output_id}: {answer_text}", q["agent_id"])
+            self.post(f"agent:{q['agent_id']}", "user", f"Answered #{output_id}: {answer_text}", q["agent_id"])
             self.enqueue(q["agent_id"], "answer", output_id=output_id)
-        self.bus.refresh(f"outputs:{q['agent_id']}", "outputs", "status")
+        self.bus.refresh(f"outputs:{q['agent_id']}", "outputs", "status", "agents")
 
     def mark_seen(self, agent_id: int) -> None:
         self.db.run("UPDATE outputs SET status = 'seen' WHERE agent_id = ? AND status = 'new'", agent_id)

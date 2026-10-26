@@ -43,11 +43,12 @@ CREATE INDEX IF NOT EXISTS messages_channel ON messages(channel, id);
 CREATE TABLE IF NOT EXISTS outputs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     agent_id INTEGER NOT NULL,
-    kind TEXT NOT NULL,                             -- finding | report | table | draft | link | question
+    kind TEXT NOT NULL,                             -- finding | report | table | draft | link | question | login
     title TEXT NOT NULL,
     body TEXT NOT NULL DEFAULT '',
     data TEXT,
     importance TEXT NOT NULL DEFAULT 'normal',      -- low | normal | high
+    blocking INTEGER NOT NULL DEFAULT 0,            -- the agent can't go on until the user acts (shown as a blocker)
     status TEXT NOT NULL DEFAULT 'new',             -- new | seen | done | dismissed | open | answered
     answer TEXT,
     feedback TEXT,

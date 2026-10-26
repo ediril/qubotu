@@ -77,6 +77,9 @@ Each agent has three tabs:
 
 The header has **Run now**, **Stop run**, **Pause**, and **Resume**. A paused agent skips its scheduled runs.
 
+### When an agent is blocked
+Some things an agent can't do without you, such as logging in to a site or answering a question it can't go on without. These show as a red bar at the top of every page, with the action right there (**Log in**, **Answer**, or **Not now**). The agent shows **blocked** in the sidebar, and the browser tab's title starts with the number of blocked requests, so you notice from another tab. Once you act, the agent carries on by itself. Everything else, like findings and questions that can wait, stays in the agent's Shared tab.
+
 ### Shared memory
 What your agents have learned about you, plus anything you add yourself. Every agent can read it. Edit or remove anything that's wrong. Pinned memories are always included in agents' context.
 
@@ -86,7 +89,7 @@ Some sites only show content to logged-in users, such as an X list. In **Setting
 Agents browse those sites logged in as you, but read-only: Qubotu blocks anything that would post, like, or change something there. Each site has its own Chrome profile, which only that site's pages use, and agents never see your password. Consider a separate account for agents, because some sites (X among them) watch for automated browsing.
 
 ### Dashboard
-Open questions and important outputs that need you, each agent's status and next run, recent outputs, and recent collaboration.
+Questions and important outputs waiting for you, each agent's status and next run, recent outputs, and recent collaboration. Blockers show in the bar at the top instead.
 
 ## Running Qubotu
 

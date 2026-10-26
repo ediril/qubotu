@@ -5,7 +5,7 @@ import json
 from typing import TYPE_CHECKING
 
 from . import collab
-from .browser import BrowserError
+from .browser import BrowserError, normalize_host
 from .db import now
 
 if TYPE_CHECKING:
@@ -48,14 +48,29 @@ SPECS = [
     ),
     _fn(
         "ask_user",
-        "Ask the user a question that blocks your work. Only when essential information is missing or an action exceeds your authority. "
+        "Ask the user a question. Only when essential information is missing or an action exceeds your authority. "
         "The answer arrives later as a separate message; keep doing unblocked work meanwhile.",
         {
             "question": {"type": "string"},
             "context": {"type": "string", "description": "Why you need this, briefly."},
             "options": {"type": "array", "items": {"type": "string"}, "description": "Suggested answers, if the choice is between known options."},
+            "blocking": {
+                "type": "boolean",
+                "description": "True only if you can't go on with your job at all until the user answers. "
+                "The user is alerted prominently, so don't overuse it. Otherwise the question waits in your Shared tab.",
+            },
         },
         ["question"],
+    ),
+    _fn(
+        "ask_to_log_in",
+        "Ask the user to log in to a site you need, when a page shows a login wall or your login there has expired. "
+        "This alerts the user prominently. When they've logged in, you'll get a message and can open the site again.",
+        {
+            "site": {"type": "string", "description": "The site, for example x.com."},
+            "reason": {"type": "string", "description": "What you need it for, in one sentence."},
+        },
+        ["site", "reason"],
     ),
     _fn(
         "request_help",
@@ -181,6 +196,7 @@ async def call(engine: "Engine", state: "Run", tool: str, args: dict) -> tuple[b
         if not question:
             return False, "question is required."
         data = {"context": args.get("context") or "", "options": args.get("options") or []}
+        blocking = bool(args.get("blocking"))
         ts = now()
         qid = db.insert(
             "outputs",
@@ -189,13 +205,23 @@ async def call(engine: "Engine", state: "Run", tool: str, args: dict) -> tuple[b
             title=question,
             body=data["context"],
             data=json.dumps(data),
-            importance="high",
+            importance="high" if blocking else "normal",
             status="open",
+            blocking=int(blocking),
             created_at=ts,
             updated_at=ts,
         )
-        engine.bus.refresh(f"outputs:{agent_id}", "outputs", "status")
+        engine.bus.refresh(f"outputs:{agent_id}", "outputs", "status", "agents")
         return True, f"Question #{qid} sent to the user. Their answer will arrive later; continue unblocked work."
+
+    if tool == "ask_to_log_in":
+        host = normalize_host(args.get("site", ""))
+        if not host:
+            return False, "site must be a site address, for example x.com."
+        oid, new = engine.request_login(agent_id, host, args.get("reason", "").strip())
+        if not new:
+            return True, f"You already asked the user to log in to {host} (request #{oid}). Wait for their reply."
+        return True, f"Asked the user to log in to {host} (request #{oid}). You'll get a message when they have; continue other work."
 
     if tool == "request_help":
         return collab.submit_request(engine, state, args.get("agent", ""), args.get("task", ""))

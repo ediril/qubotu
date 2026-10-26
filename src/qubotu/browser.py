@@ -144,6 +144,7 @@ class Browser:
         self.on_change = on_change  # called when a site's login state changes
         self.tabs: dict[int, Tab] = {}  # run item id -> its tab
         self.logging_in: dict[int, asyncio.Task] = {}  # site id -> its open login window
+        self._after_login: dict[int, list] = {}  # site id -> what to do once its login window closes
         self._pw = None
         self._public = None
         self._sites: dict[int, object] = {}  # site id -> its persistent context
@@ -177,9 +178,11 @@ class Browser:
     def _profile(self, site_id: int):
         return config.BROWSER_DIR / "sites" / str(site_id)
 
-    def start_login(self, site_id: int) -> None:
+    def start_login(self, site_id: int, on_done=None) -> None:
         """Open a real Chrome window on the site so the user can log in. It counts as logged in
-        once they close the window."""
+        once they close the window, and then `on_done` is called."""
+        if on_done:
+            self._after_login.setdefault(site_id, []).append(on_done)
         if site_id in self.logging_in:
             return
         task = self.logging_in[site_id] = asyncio.create_task(self._login(site_id))
@@ -187,8 +190,12 @@ class Browser:
         def done(t: asyncio.Task) -> None:
             if self.logging_in.get(site_id) is t:
                 del self.logging_in[site_id]
+            waiting = self._after_login.pop(site_id, [])
             if not t.cancelled() and t.exception():
                 log.error("login window failed", exc_info=t.exception())
+            elif not t.cancelled():
+                for callback in waiting:
+                    callback()
             self.on_change()
 
         task.add_done_callback(done)

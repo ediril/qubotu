@@ -2,6 +2,12 @@
 
 Versions are `<major>.<work-day>.<increment>` (see the README), so each work day below is one minor version.
 
+## Unreleased
+
+- **Blocked agents stand out.** When an agent can't go on without you, a red bar at the top of every page says so, with the action right there. The agent shows **blocked** in the sidebar, and the browser tab's title counts blocked requests. Findings and other things that can wait stay in the Shared tab.
+- **Agents can ask you to log in.** An agent that hits a login wall asks you to log in to that site. One click opens the Chrome window, or lets the agent use a login you already have, and the agent carries on once you're done.
+- **Agents mark questions as blocking** only when they can't go on without the answer. Other questions wait in the Shared tab.
+
 ## First public release (2026-10-25)
 
 Qubotu runs a team of persistent personal agents on your Mac, managed from your browser.

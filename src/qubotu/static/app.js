@@ -83,6 +83,15 @@
     if (msg && !window.confirm(msg)) e.preventDefault();
   }, true);
 
+  // The tab title starts with the number of blocked agents' requests, so it shows from a background tab.
+  document.body.addEventListener("htmx:afterSwap", function () {
+    var el = document.querySelector("[data-blocker-count]");
+    if (!el) return;
+    var n = parseInt(el.dataset.blockerCount, 10) || 0;
+    var base = document.title.replace(/^\(\d+\) /, "");
+    document.title = n ? "(" + n + ") " + base : base;
+  });
+
   // Composer: Enter sends, Shift+Enter adds a line. Clear after sending.
   document.addEventListener("keydown", function (e) {
     var ta = e.target;

@@ -204,3 +204,22 @@ async def test_tab_errors_are_plain(browser, server):
     await browser.open(1, 7, f"http://127.0.0.1:{server}/")
     with pytest.raises(BrowserError, match="ref must look like"):
         await browser.click(1, "#evil")
+
+
+async def test_everyone_waiting_on_a_login_window_hears_when_it_closes(browser, monkeypatch):
+    import asyncio
+
+    closed = asyncio.Event()
+
+    async def window(site_id):
+        await closed.wait()
+
+    monkeypatch.setattr(browser, "_login", window)
+    site_id = browser.add_site("x.com")
+    told = []
+    browser.start_login(site_id, on_done=lambda: told.append("settings"))
+    browser.start_login(site_id, on_done=lambda: told.append("agent"))
+    assert list(browser.logging_in) == [site_id], "one window, however many asked"
+    closed.set()
+    await asyncio.sleep(0.01)
+    assert told == ["settings", "agent"] and not browser.logging_in

@@ -27,7 +27,16 @@
     {% endif %}
   {% endif %}
 
-  {% if o.kind == 'question' %}
+  {% if o.kind == 'login' %}
+    {% if o.status == 'open' %}
+    <div class="inline-form">
+      <button class="btn primary" hx-post="/outputs/{{ o.id }}/login" hx-swap="none">Log in to {{ data.host }}</button>
+      <button class="btn ghost" hx-post="/outputs/{{ o.id }}/decline" hx-swap="none">Not now</button>
+    </div>
+    {% else %}
+    <p class="answer-given">{{ o.answer }}</p>
+    {% endif %}
+  {% elif o.kind == 'question' %}
     {% if o.status == 'open' %}
     <form class="answer" hx-post="/outputs/{{ o.id }}/answer" hx-target="#output-{{ o.id }}" hx-swap="outerHTML">
       {% if data.options %}
