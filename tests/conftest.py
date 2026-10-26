@@ -112,6 +112,11 @@ class FakeCodex:
         self._notify("turn/completed", thread_id, None, turn={"id": turn_id, "status": status})
 
 
+@pytest.fixture(autouse=True)
+def private_ui_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "UI_KEY_PATH", tmp_path / "ui.key")
+
+
 @pytest.fixture
 def engine(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AGENTS_DIR", tmp_path / "agents")

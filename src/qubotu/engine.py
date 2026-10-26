@@ -34,7 +34,7 @@ class Engine:
         self.bus = Bus()
         self.memory = Memory(self.db)
         self.codex = CodexClient(self._on_notification, self._on_tool_call)
-        self.browser = Browser(self.db, on_change=lambda: self.bus.refresh("sites"))
+        self.browser = Browser(self.db, on_change=lambda: self.bus.refresh("sites"), on_logged_in=self.site_logged_in)
         self.locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.semaphore = asyncio.Semaphore(config.MAX_CONCURRENT_TURNS)
         self.runs: dict[int, list[Run]] = defaultdict(list)  # agent id -> its queued and running runs
@@ -127,13 +127,15 @@ class Engine:
         runs = self.runs.get(agent["id"], [])
         if any(r.running for r in runs):
             return "running"
-        if self.db.value("SELECT 1 FROM outputs WHERE agent_id = ? AND status = 'open' AND blocking = 1", agent["id"]):
-            return "blocked"
         if runs:
             return "queued"
         return "paused" if agent["status"] == "paused" else "idle"
 
     # Blockers: open questions or login requests the agent can't go on without
+
+    def is_blocked(self, agent_id: int) -> bool:
+        """Separate from status: an agent can be blocked on one thing while running or queued for another."""
+        return bool(self.db.value("SELECT 1 FROM outputs WHERE agent_id = ? AND status = 'open' AND blocking = 1", agent_id))
 
     def blockers(self) -> list[dict]:
         rows = self.db.all(
@@ -143,14 +145,26 @@ class Engine:
         for r in rows:
             r["data"] = json.loads(r["data"]) if r["data"] else {}
             if r["kind"] == "login":
-                site = self.db.one("SELECT * FROM sites WHERE host = ?", r["data"]["host"])
-                granted = site and self.db.value(
-                    "SELECT 1 FROM agent_sites WHERE agent_id = ? AND site_id = ?", r["agent_id"], site["id"]
-                )
-                # An agent that already has the site hit an expired login; otherwise a working login just needs granting.
-                r["action"] = "grant" if site and site["logged_in_at"] and not granted else "login"
+                site = self.browser.site_for(r["data"]["host"])
+                r["action"] = self._login_action(r, site)
+                r["new_site"] = site is None
                 r["logging_in"] = bool(site) and site["id"] in self.browser.logging_in
         return rows
+
+    def _granted(self, agent_id: int, site: dict | None) -> bool:
+        return bool(site) and bool(
+            self.db.value("SELECT 1 FROM agent_sites WHERE agent_id = ? AND site_id = ?", agent_id, site["id"])
+        )
+
+    def _login_action(self, request: dict, site: dict | None) -> str:
+        """What the user's click does: "grant" lets the agent use a login that already works, "login"
+        opens the login window. An agent that already had the site when it asked hit an expired login."""
+        data = request["data"] if isinstance(request["data"], dict) else json.loads(request["data"])
+        if not site or not site["logged_in_at"]:
+            return "login"
+        if self._granted(request["agent_id"], site) and data.get("expired"):
+            return "login"
+        return "grant"
 
     def request_login(self, agent_id: int, host: str, reason: str) -> tuple[int, bool]:
         """Ask the user to log in to a site for this agent. Returns the request's id, and whether it's new."""
@@ -160,30 +174,52 @@ class Engine:
         )
         if existing:
             return existing["id"], False
+        data = {"host": host, "expired": self._granted(agent_id, self.browser.site_for(host))}
         ts = now()
         oid = self.db.insert(
-            "outputs", agent_id=agent_id, kind="login", title=f"Log in to {host}", body=reason,
-            data=json.dumps({"host": host}), importance="high", status="open", blocking=1, created_at=ts, updated_at=ts,
+            "outputs", agent_id=agent_id, kind="login", title=f"Log in to {host}", body=reason[:300],
+            data=json.dumps(data), importance="high", status="open", blocking=1, created_at=ts, updated_at=ts,
         )
         self.bus.refresh(f"outputs:{agent_id}", "outputs", "status", "agents")
         return oid, True
 
     def resolve_login(self, output_id: int) -> None:
-        """Act on a login request: grant a site that's already logged in, or open the login window
-        and grant it once the user closes it. Either way the agent is told and carries on."""
+        """The user clicked a login request's button. A login that already works is granted at once.
+        Otherwise the login window opens, and `site_logged_in` grants it when the window closes."""
         o = self.db.one("SELECT * FROM outputs WHERE id = ? AND kind = 'login' AND status = 'open'", output_id)
         if not o:
             return
-        host = json.loads(o["data"])["host"]
-        action = next(b for b in self.blockers() if b["id"] == output_id)["action"]
-        site_id = self.browser.add_site(host)
-        self.db.run("INSERT OR IGNORE INTO agent_sites (agent_id, site_id) VALUES (?, ?)", o["agent_id"], site_id)
-        if action == "grant":
-            self.answer_question(output_id, f"You can use {host} now, logged in as the user.")
+        data = json.loads(o["data"])
+        site = self.browser.site_for(data["host"])
+        if self._login_action(o, site) == "grant":
+            self._grant_and_answer(o, site, f"You can use {site['host']} now, logged in as the user.")
             return
-        self.browser.start_login(
-            site_id, on_done=lambda: self.answer_question(output_id, f"The user logged in to {host}. You can use it now.")
-        )
+        self.db.update("outputs", output_id, data=json.dumps({**data, "approved": True}))
+        self.browser.start_login(site["id"] if site else self.browser.add_site(data["host"]))
+
+    def site_logged_in(self, site_id: int) -> None:
+        """A site's login window closed, wherever it was opened from. Every request waiting on that
+        site carries on, but only those the user approved, or whose agent already had the site, get it."""
+        site = self.db.one("SELECT * FROM sites WHERE id = ?", site_id)
+        if not site:
+            return
+        for o in self.db.all("SELECT * FROM outputs WHERE kind = 'login' AND status = 'open'"):
+            data = json.loads(o["data"])
+            if self.browser.site_for(data["host"]) != site:
+                continue
+            if data.get("approved") or self._granted(o["agent_id"], site):
+                self._grant_and_answer(
+                    o, site, f"The user closed the login window for {site['host']}, so you're probably logged in "
+                    "now. Open the site again to check.",
+                )
+
+    def _grant_and_answer(self, request: dict, site: dict, answer: str) -> None:
+        data = json.loads(request["data"])
+        with self.db.transaction():
+            self.db.run("INSERT OR IGNORE INTO agent_sites (agent_id, site_id) VALUES (?, ?)", request["agent_id"], site["id"])
+            # If this request is ever reopened, the site works for the agent now; it's no longer an expired login.
+            self.db.update("outputs", request["id"], data=json.dumps({**data, "expired": False}))
+            self.answer_question(request["id"], answer)
 
     def decline_login(self, output_id: int) -> None:
         o = self.db.one("SELECT * FROM outputs WHERE id = ? AND kind = 'login'", output_id)
@@ -210,10 +246,13 @@ class Engine:
 
     def set_agent_sites(self, agent_id: int, site_ids: list[int]) -> None:
         known = {s["id"] for s in self.browser.sites()}
+        before = {s["id"] for s in self.browser.granted(agent_id)}
         with self.db.transaction():
             self.db.run("DELETE FROM agent_sites WHERE agent_id = ?", agent_id)
             for sid in set(site_ids) & known:
                 self.db.insert("agent_sites", agent_id=agent_id, site_id=sid)
+        if removed := before - set(site_ids):
+            self.spawn(self.browser.revoke(agent_id, removed))
 
     def delete_agent(self, agent_id: int) -> None:
         agent = self.db.agent(agent_id)

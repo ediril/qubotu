@@ -4,14 +4,17 @@
   <div class="blocker">
     <span class="blocker-text">
       <strong>{{ b.agent_name }}</strong> is blocked:
-      {% if b.kind == 'login' %}needs you to log in to <strong>{{ b.data.host }}</strong>{% if b.body %}. {{ b.body }}{% endif %}
+      {% if b.kind == 'login' %}needs you to log in to <strong>{{ b.data.host }}</strong>.
+        {% if b.body %}<span class="blocker-quote">{{ b.agent_name }} says: “{{ b.body }}”</span>{% endif %}
       {% else %}{{ b.title }}{% endif %}
     </span>
     {% if b.kind == 'login' %}
       {% if b.logging_in %}
       <span class="small">Log in in the Chrome window, then close it.</span>
       {% else %}
-      <button class="btn small primary" hx-post="/outputs/{{ b.id }}/login" hx-swap="none">{{ 'Let ' ~ b.agent_name ~ ' use it' if b.action == 'grant' else 'Log in' }}</button>
+      <button class="btn small primary" hx-post="/outputs/{{ b.id }}/login" hx-swap="none">
+        {%- if b.action == 'grant' %}Let {{ b.agent_name }} use it{% elif b.new_site %}Open {{ b.data.host }} to log in{% else %}Log in{% endif -%}
+      </button>
       <button class="btn small ghost" hx-post="/outputs/{{ b.id }}/decline" hx-swap="none">Not now</button>
       {% endif %}
     {% else %}

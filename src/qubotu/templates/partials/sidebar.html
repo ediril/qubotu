@@ -4,7 +4,7 @@
     <a href="/agents/{{ a.id }}" class="agent-link" data-agent-nav="agent:{{ a.id }}">
       <span class="dot dot-{{ a.state }}" title="{{ a.state }}"></span>
       <span class="agent-link-name">{{ a.name }}</span>
-      {% if a.state == 'blocked' %}<span class="badge badge-blocked">blocked</span>
+      {% if a.blocked %}<span class="badge badge-blocked">blocked</span>
       {% elif a.unseen %}<span class="badge">{{ a.unseen }}</span>{% endif %}
     </a>
   </li>

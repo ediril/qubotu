@@ -33,6 +33,7 @@
         <span class="dot dot-{{ a.state }}"></span>
         <strong>{{ a.name }}</strong>
         <span class="pill pill-{{ a.state }}">{{ a.state }}</span>
+        {% if a.blocked %}<span class="pill pill-blocked">blocked</span>{% endif %}
       </div>
       <div class="muted small clamp">{{ a.specialty or "No job set" }}</div>
       <dl class="facts">

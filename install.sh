@@ -64,4 +64,4 @@ if [ "$CODEX_OK" = "0" ]; then
     say "login service, reinstall it afterwards so it can find codex:  qubotu service install"
 fi
 say ""
-say "Open http://127.0.0.1:8765 in your browser."
+say "Open Qubotu in your browser with:  qubotu open"

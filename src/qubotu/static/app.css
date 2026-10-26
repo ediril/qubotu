@@ -81,6 +81,7 @@ p { margin: 0 0 8px; }
 .blockers { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .blocker { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--red-soft); color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); border-radius: 8px; padding: 10px 14px; }
 .blocker-text { flex: 1; min-width: 200px; }
+.blocker-quote { display: block; font-style: italic; opacity: .85; }
 .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); text-transform: lowercase; vertical-align: middle; }
 .pill-running, .pill-done, .pill-completed { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
 .pill-queued, .pill-pending, .pill-high { background: var(--amber-soft); color: var(--amber); }

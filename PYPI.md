@@ -21,7 +21,8 @@ Qubotu runs agents on the [Codex CLI](https://github.com/openai/codex), so insta
 ## Use
 
 ```sh
-qubotu serve --open             # http://127.0.0.1:8765
+qubotu serve --open             # run it and open it in your browser
+qubotu open                     # open it in your browser (needed once per browser)
 qubotu service install          # start automatically at login (macOS)
 ```
 

@@ -1,14 +1,18 @@
 """Chrome, driven by the daemon on agents' behalf.
 
 Agents never touch a browser profile. They call Qubotu's page tools, and Qubotu runs Chrome.
-Public browsing uses a fresh, logged-out context for each run. Each site the user connects gets
+Logged-out browsing uses a fresh context for each page opened. Each site the user connects gets
 its own persistent profile under the data folder, which agents can't read. A site's profile is
-used only for that site, and only to read: requests that would change data there are blocked.
+used only for that site, and only to read: it sends no POST, PUT, DELETE, or WebSocket traffic
+anywhere, never shows a page from another site, and doesn't follow logout links. GET requests are
+trusted to be reads, which holds for nearly all sites. No browsing reaches local or private
+addresses, so agents can't use Qubotu's own UI or devices on the user's network.
 """
 
 import asyncio
 import difflib
 import functools
+import ipaddress
 import logging
 import platform
 import plistlib
@@ -38,6 +42,10 @@ SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 # Bot checks aren't data changes. Blocking them could get the agent treated as a bot.
 CHALLENGE_PATH = "/cdn-cgi/challenge-platform/"
 CHALLENGE_HOSTS = ("challenges.cloudflare.com",)
+LOGOUT_RE = re.compile(r"(log|sign)[-_ ]?(out|off)", re.IGNORECASE)
+LOCAL_SUFFIXES = (".localhost", ".local", ".internal", ".home.arpa")
+# Tests browse their own server on 127.0.0.1; nothing else should.
+ALLOW_LOCAL = False
 CHROME_ARGS = ["--disable-blink-features=AutomationControlled"]
 CHROME_APP = Path("/Applications/Google Chrome.app")
 # A common MacBook screen, instead of headless Chrome's telltale 1280x720.
@@ -109,6 +117,34 @@ def identity() -> dict:
     }
 
 
+def _local_ip(text: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(text.strip("[]"))
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified or ip.is_multicast
+
+
+def is_local(host: str) -> bool:
+    """A loopback, private, or local-network name or address, by its text alone."""
+    if ALLOW_LOCAL:
+        return False
+    return host == "localhost" or host.endswith(LOCAL_SUFFIXES) or _local_ip(host)
+
+
+async def resolves_local(host: str) -> bool:
+    """Also catch public names that point at local addresses."""
+    if ALLOW_LOCAL:
+        return False
+    if is_local(host):
+        return True
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, None)
+    except OSError:
+        return False  # the page load reports it
+    return any(_local_ip(info[4][0]) for info in infos)
+
+
 def on_host(host: str, site: str) -> bool:
     return host == site or host.endswith("." + site)
 
@@ -132,6 +168,7 @@ def _cap(text: str) -> str:
 @dataclass
 class Tab:
     page: object
+    agent_id: int
     site: dict | None  # the connected site whose login this tab uses, or None when logged out
     context: object = None  # a logged-out tab's own context, closed with it
     lines: list[str] = field(default_factory=list)
@@ -139,12 +176,12 @@ class Tab:
 
 
 class Browser:
-    def __init__(self, db: DB, on_change=lambda: None):
+    def __init__(self, db: DB, on_change=lambda: None, on_logged_in=lambda site_id: None):
         self.db = db
         self.on_change = on_change  # called when a site's login state changes
+        self.on_logged_in = on_logged_in  # called with a site's id when its login window closes
         self.tabs: dict[int, Tab] = {}  # run item id -> its tab
         self.logging_in: dict[int, asyncio.Task] = {}  # site id -> its open login window
-        self._after_login: dict[int, list] = {}  # site id -> what to do once its login window closes
         self._pw = None
         self._public = None
         self._sites: dict[int, object] = {}  # site id -> its persistent context
@@ -161,6 +198,11 @@ class Browser:
             "SELECT s.* FROM sites s JOIN agent_sites g ON g.site_id = s.id WHERE g.agent_id = ? ORDER BY s.host", agent_id
         )
 
+    def site_for(self, host: str) -> dict | None:
+        """The connected site whose login covers this host: x.com covers mobile.x.com."""
+        covering = [s for s in self.sites() if on_host(host, s["host"])]
+        return max(covering, key=lambda s: len(s["host"])) if covering else None
+
     def add_site(self, host: str) -> int:
         existing = self.db.one("SELECT id FROM sites WHERE host = ?", host)
         return existing["id"] if existing else self.db.insert("sites", host=host, created_at=now())
@@ -169,7 +211,8 @@ class Browser:
         task = self.logging_in.pop(site_id, None)
         if task:
             task.cancel()
-        await self._close_site(site_id)
+        async with self._lock(site_id):
+            await self._close_site(site_id)
         with self.db.transaction():
             self.db.run("DELETE FROM agent_sites WHERE site_id = ?", site_id)
             self.db.run("DELETE FROM sites WHERE id = ?", site_id)
@@ -178,11 +221,9 @@ class Browser:
     def _profile(self, site_id: int):
         return config.BROWSER_DIR / "sites" / str(site_id)
 
-    def start_login(self, site_id: int, on_done=None) -> None:
+    def start_login(self, site_id: int) -> None:
         """Open a real Chrome window on the site so the user can log in. It counts as logged in
-        once they close the window, and then `on_done` is called."""
-        if on_done:
-            self._after_login.setdefault(site_id, []).append(on_done)
+        once they close the window, and then `on_logged_in` is called."""
         if site_id in self.logging_in:
             return
         task = self.logging_in[site_id] = asyncio.create_task(self._login(site_id))
@@ -190,12 +231,10 @@ class Browser:
         def done(t: asyncio.Task) -> None:
             if self.logging_in.get(site_id) is t:
                 del self.logging_in[site_id]
-            waiting = self._after_login.pop(site_id, [])
             if not t.cancelled() and t.exception():
                 log.error("login window failed", exc_info=t.exception())
             elif not t.cancelled():
-                for callback in waiting:
-                    callback()
+                self.on_logged_in(site_id)
             self.on_change()
 
         task.add_done_callback(done)
@@ -205,14 +244,19 @@ class Browser:
         site = self.db.one("SELECT * FROM sites WHERE id = ?", site_id)
         if not site:
             return
-        await self._close_site(site_id)
-        pw = await self._playwright()
-        ctx = await self._launch_profile(pw, site_id, headless=False)
+        # One Chrome per profile: agents' tabs on this site close, and new ones wait for the login to finish.
+        async with self._lock(site_id):
+            await self._close_site(site_id)
+            ctx = await self._launch_profile(await self._playwright(), site_id, headless=False)
         try:
             closed = asyncio.Event()
             ctx.on("close", lambda _: closed.set())
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-            await page.goto(f"https://{site['host']}/")
+            try:
+                await page.goto(f"https://{site['host']}/", wait_until="commit")
+            except Exception:
+                # A slow or unreachable first page shouldn't close the window on the user.
+                log.warning("login window for %s didn't load its first page", site["host"], exc_info=True)
             await closed.wait()
         finally:
             await ctx.close()
@@ -227,13 +271,20 @@ class Browser:
         if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
             raise BrowserError("Only http and https addresses can be opened.")
         host = parts.hostname.lower()
+        if await resolves_local(host):
+            raise BrowserError("Local and private network addresses can't be opened.")
         site = next((s for s in self.granted(agent_id) if on_host(host, s["host"])), None)
-        if site and site["id"] in self.logging_in:
-            raise BrowserError(f"The user is logging in to {site['host']} right now. Try again later.")
         await self.close_tab(key)
-        ctx = await (self._site_context(site) if site else self._public_context())
-        page = await ctx.new_page()
-        tab = self.tabs[key] = Tab(page, site, context=None if site else ctx)
+        if site:
+            async with self._lock(site["id"]):
+                if site["id"] in self.logging_in:
+                    raise BrowserError(f"The user is logging in to {site['host']} right now. Try again later.")
+                page = await (await self._site_context(site)).new_page()
+                tab = self.tabs[key] = Tab(page, agent_id, site)
+        else:
+            ctx = await self._public_context()
+            tab = self.tabs[key] = Tab(await ctx.new_page(), agent_id, None, context=ctx)
+        page = tab.page
         await self._dress(page)
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
@@ -261,6 +312,7 @@ class Browser:
                 await tab.page.mouse.wheel(0, height * 0.9 / steps)
                 await asyncio.sleep(random.uniform(*WHEEL_PAUSE))
             await self._settle(tab.page)
+            await self._keep_on_site(tab)
             lines = _lines(await tab.page.evaluate("document.body ? document.body.innerText : ''"))
             collected += new_lines(tab.lines, lines)
             tab.lines = lines
@@ -306,10 +358,20 @@ class Browser:
         tab = self.tabs.pop(key, None)
         if not tab:
             return
-        await _quietly(tab.context.close() if tab.context else tab.page.close())
-        if tab.site and not any(t.site and t.site["id"] == tab.site["id"] for t in self.tabs.values()):
-            # Closing a persistent context writes its cookies to disk and frees the Chrome process.
-            await self._close_site(tab.site["id"])
+        if not tab.site:
+            await _quietly(tab.context.close())
+            return
+        site_id = tab.site["id"]
+        async with self._lock(site_id):
+            await _quietly(tab.page.close())
+            if not any(t.site and t.site["id"] == site_id for t in self.tabs.values()):
+                # Closing a persistent context writes its cookies to disk and frees the Chrome process.
+                await self._close_site(site_id)
+
+    async def revoke(self, agent_id: int, site_ids: set[int]) -> None:
+        """Close the agent's tabs that use a site's login it no longer has."""
+        for key in [k for k, t in self.tabs.items() if t.agent_id == agent_id and t.site and t.site["id"] in site_ids]:
+            await self.close_tab(key)
 
     async def stop(self) -> None:
         for task in self.logging_in.values():
@@ -317,7 +379,8 @@ class Browser:
         for key in list(self.tabs):
             await self.close_tab(key)
         for site_id in list(self._sites):
-            await self._close_site(site_id)
+            async with self._lock(site_id):
+                await self._close_site(site_id)
         if self._public:
             await self._public.close()
             self._public = None
@@ -368,7 +431,22 @@ class Browser:
         new = tab.blocked[since:]
         return f"(Blocked: {'; '.join(dict.fromkeys(new))}.)" if new else ""
 
+    async def _keep_on_site(self, tab: Tab) -> None:
+        """A logged-in tab never shows another site's page. Redirects can get there without the
+        route guard seeing them, so check where the tab actually is before reading it."""
+        if not tab.site or tab.page.url.startswith("about:"):
+            return
+        host = (urlsplit(tab.page.url).hostname or "").lower()
+        if on_host(host, tab.site["host"]):
+            return
+        await _quietly(tab.page.goto("about:blank"))
+        raise BrowserError(
+            f"That went to {host or 'another site'}, outside {tab.site['host']}, so it isn't shown in the logged-in tab. "
+            "Open it with open_page."
+        )
+
     async def _snapshot(self, tab: Tab, intro: str = "") -> str:
+        await self._keep_on_site(tab)
         try:
             snap = await tab.page.evaluate(SNAPSHOT_JS, MAX_ELEMENTS)
         except Exception as e:
@@ -405,7 +483,8 @@ class Browser:
             last = size
             await asyncio.sleep(SETTLE_POLL)
 
-    async def _guard(self, route, site: str) -> None:
+    async def _guard(self, route, site: str | None) -> None:
+        """Every request from every page Qubotu opens. `site` is the logged-in site, or None."""
         req = route.request
         parts = urlsplit(req.url)
         host = (parts.hostname or "").lower()
@@ -416,17 +495,30 @@ class Browser:
         # Popups opened by the page have no tab: they're still guarded, just not reported.
         tab = next((t for t in self.tabs.values() if t.page is page), None)
         blocked = tab.blocked if tab else []
-        if host in CHALLENGE_HOSTS or (on_host(host, site) and parts.path.startswith(CHALLENGE_PATH)):
+        document = req.resource_type == "document"
+        if is_local(host):
+            blocked.append(f"{host}, a local address")
+            await self._refuse(route)
+        elif site is None or host in CHALLENGE_HOSTS or (on_host(host, site) and parts.path.startswith(CHALLENGE_PATH)):
             await route.continue_()
-        elif req.resource_type == "document" and not on_host(host, site):
+        elif document and not on_host(host, site):
             # The login profile stays on its own site, so it can't be used anywhere else.
             blocked.append(f"{host} is outside {site}; open it with open_page")
             await self._refuse(route)
-        elif on_host(host, site) and req.method not in SAFE_METHODS:
-            blocked.append(f"a change on {site} ({req.method} {parts.path[:60]}), because it's read-only")
+        elif document and LOGOUT_RE.search(parts.path):
+            blocked.append(f"logging out of {site}")
+            await self._refuse(route)
+        elif req.method not in SAFE_METHODS:
+            # Whatever the host: the site's API may live on another domain.
+            blocked.append(f"a change ({req.method} to {host}{parts.path[:60]}), because {site} is read-only")
             await self._refuse(route)
         else:
             await route.continue_()
+
+    @staticmethod
+    async def _close_socket(ws) -> None:
+        # Sites send messages, posts, and edits over WebSockets too, out of the route guard's sight.
+        await ws.close(code=1008, reason="read-only")
 
     @staticmethod
     async def _refuse(route) -> None:
@@ -449,30 +541,41 @@ class Browser:
                 self._public = await self._launch(pw.chromium.launch(channel="chrome", headless=True, args=CHROME_ARGS,
                                                                      ignore_default_args=["--enable-automation"]))
         ctx = await self._public.new_context(**self._context_options())
+
+        async def guard(route):
+            await self._guard(route, None)
+
+        await ctx.route("**/*", guard)
         ctx.on("page", lambda page: asyncio.ensure_future(_quietly(self._dress(page))))
         return ctx
 
+    def _lock(self, site_id: int) -> asyncio.Lock:
+        """Serializes everything that starts or stops Chrome on a site's profile: opening a tab,
+        closing the last one, and the login window. Two Chromes can't share one profile."""
+        return self._locks.setdefault(site_id, asyncio.Lock())
+
     async def _site_context(self, site: dict):
-        lock = self._locks.setdefault(site["id"], asyncio.Lock())
-        async with lock:
-            ctx = self._sites.get(site["id"])
-            if ctx is None:
-                ctx = await self._launch_profile(await self._playwright(), site["id"], headless=True)
+        """The site's headless profile, started if needed. Callers hold the site's lock."""
+        ctx = self._sites.get(site["id"])
+        if ctx is None:
+            ctx = await self._launch_profile(await self._playwright(), site["id"], headless=True)
 
-                async def guard(route):
-                    await self._guard(route, site["host"])
+            async def guard(route):
+                await self._guard(route, site["host"])
 
-                # On the whole profile, so popups the page opens are read-only too.
-                await ctx.route("**/*", guard)
-                ctx.on("page", lambda page: asyncio.ensure_future(_quietly(self._dress(page))))
-                self._sites[site["id"]] = ctx
-            return ctx
+            # On the whole profile, so popups the page opens are read-only too.
+            await ctx.route("**/*", guard)
+            await ctx.route_web_socket(re.compile(".*"), self._close_socket)
+            ctx.on("page", lambda page: asyncio.ensure_future(_quietly(self._dress(page))))
+            self._sites[site["id"]] = ctx
+        return ctx
 
     async def _launch_profile(self, pw, site_id: int, headless: bool):
         profile = self._profile(site_id)
         profile.mkdir(parents=True, exist_ok=True)
-        # The login window is the user's own Chrome, as is. Agents' headless profile takes its identity.
-        options = self._context_options() if headless else {"no_viewport": True}
+        # The login window is the user's own Chrome, as is, except that a service worker it registered
+        # would later run in the agents' profile, out of the route guard's sight.
+        options = self._context_options() if headless else {"no_viewport": True, "service_workers": "block"}
         return await self._launch(pw.chromium.launch_persistent_context(
             str(profile), channel="chrome", headless=headless,
             args=CHROME_ARGS, ignore_default_args=["--enable-automation"], **options,
@@ -494,6 +597,7 @@ class Browser:
             raise BrowserError(f"Couldn't start Chrome: {msg}") from None
 
     async def _close_site(self, site_id: int) -> None:
+        """Close the site's headless profile and drop its tabs. Callers hold the site's lock."""
         ctx = self._sites.pop(site_id, None)
         if ctx:
             for key in [k for k, t in self.tabs.items() if t.site and t.site["id"] == site_id]:

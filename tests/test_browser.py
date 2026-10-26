@@ -33,6 +33,7 @@ addEventListener('scroll', draw); draw();
 
 class Site(BaseHTTPRequestHandler):
     posts: list[str] = []
+    gets: list[str] = []
 
     def log_message(self, *a):
         pass
@@ -48,7 +49,11 @@ class Site(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlsplit(self.path)
         port = self.server.server_address[1]
-        if url.path == "/":
+        Site.gets.append(url.path)
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            self.send_response(400)
+            self.end_headers()
+        elif url.path == "/":
             self.page(
                 f"<p>cookie: {self.headers.get('Cookie') or 'none'}</p><a href='/next'>Next page</a>"
                 "<form action='/search'><input name='q' placeholder='Search'></form>"
@@ -62,6 +67,21 @@ class Site(BaseHTTPRequestHandler):
             self.page(f"<p>Results for {parse_qs(url.query)['q'][0]}</p>")
         elif url.path == "/feed":
             self.page(FEED)
+        elif url.path == "/redirect-away":
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{port}/next")
+            self.end_headers()
+        elif url.path == "/account":
+            self.page("<a href='/logout'>Log out</a><p>Your account</p>")
+        elif url.path == "/logout":
+            self.page("<p>Logged out</p>")
+        elif url.path == "/chat":
+            self.page(f"<p>Chat</p><script>new WebSocket('ws://' + location.host + '/socket')</script>")
+        elif url.path == "/api-elsewhere":
+            self.page(
+                f"<p>App</p><script>fetch('http://127.0.0.1:{port}/like-elsewhere', "
+                "{method: 'POST', mode: 'no-cors', credentials: 'include'})</script>"
+            )
         elif url.path == "/login":
             self.page("<p>Logged in</p>", {"Set-Cookie": "session=abc; Path=/; Max-Age=3600"})
 
@@ -73,6 +93,7 @@ class Site(BaseHTTPRequestHandler):
 @pytest.fixture
 def server():
     Site.posts = []
+    Site.gets = []
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Site)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv.server_address[1]
@@ -86,6 +107,7 @@ async def browser(tmp_path, monkeypatch):
     monkeypatch.setattr(browser_mod, "TYPING", (0, 0))
     monkeypatch.setattr(browser_mod, "SETTLE_POLL", 0.05)
     monkeypatch.setattr(browser_mod, "WHEEL_PAUSE", (0, 0))
+    monkeypatch.setattr(browser_mod, "ALLOW_LOCAL", True)
     b = Browser(DB(tmp_path / "q.db"))
     yield b
     await b.stop()
@@ -157,7 +179,7 @@ async def test_logged_in_site_is_read_only_and_stays_on_its_site(browser, server
     assert "Read-only" in text
 
     like = next(line.split("]")[0][1:] for line in text.splitlines() if '"Like"' in line)
-    assert "because it's read-only" in await browser.click(1, like)
+    assert "because localhost is read-only" in await browser.click(1, like)
     assert Site.posts == [], "the change never reached the site"
 
     text = await browser.read(1)
@@ -195,6 +217,51 @@ async def test_pages_carry_the_users_chrome_identity(browser, server):
     assert seen["webdriver"] is False
 
 
+async def logged_in_tab(browser, server, path: str) -> str:
+    site_id = await log_in(browser, "localhost", server)
+    browser.db.insert("agent_sites", agent_id=7, site_id=site_id)
+    return await browser.open(1, 7, f"http://localhost:{server}{path}")
+
+
+@needs_chrome
+async def test_logged_in_pages_send_no_websocket_traffic(browser, server):
+    await browser.open(2, 8, f"http://localhost:{server}/chat")
+    assert "/socket" in Site.gets, "logged out, the page's socket connects"
+    Site.gets.clear()
+    await logged_in_tab(browser, server, "/chat")
+    assert "/socket" not in Site.gets, "logged in, it never leaves the browser"
+
+
+@needs_chrome
+async def test_logged_in_pages_change_nothing_on_other_hosts_either(browser, server):
+    await logged_in_tab(browser, server, "/api-elsewhere")
+    assert "/like-elsewhere" not in Site.posts, "a site's API on another domain is read-only too"
+
+
+@needs_chrome
+async def test_a_redirect_never_shows_another_site_in_the_logged_in_tab(browser, server):
+    with pytest.raises(BrowserError, match="outside localhost"):
+        await logged_in_tab(browser, server, "/redirect-away")
+    assert browser.tabs[1].page.url == "about:blank"
+
+
+@needs_chrome
+async def test_logout_links_are_not_followed(browser, server):
+    text = await logged_in_tab(browser, server, "/account")
+    logout = next(line.split("]")[0][1:] for line in text.splitlines() if '"Log out"' in line)
+    assert "logging out of localhost" in await browser.click(1, logout)
+    assert "/logout" not in Site.gets
+
+
+@needs_chrome
+async def test_local_addresses_are_refused(browser, server, monkeypatch):
+    monkeypatch.setattr(browser_mod, "ALLOW_LOCAL", False)
+    for url in (f"http://127.0.0.1:{server}/", "http://localhost:8765/", "http://192.168.1.1/", "http://router.local/"):
+        with pytest.raises(BrowserError, match="Local and private"):
+            await browser.open(1, 7, url)
+    assert Site.gets == []
+
+
 @needs_chrome
 async def test_tab_errors_are_plain(browser, server):
     with pytest.raises(BrowserError, match="open_page first"):
@@ -206,7 +273,7 @@ async def test_tab_errors_are_plain(browser, server):
         await browser.click(1, "#evil")
 
 
-async def test_everyone_waiting_on_a_login_window_hears_when_it_closes(browser, monkeypatch):
+async def test_closing_the_login_window_reports_the_site_once(browser, monkeypatch):
     import asyncio
 
     closed = asyncio.Event()
@@ -214,12 +281,83 @@ async def test_everyone_waiting_on_a_login_window_hears_when_it_closes(browser, 
     async def window(site_id):
         await closed.wait()
 
+    told = []
+    browser.on_logged_in = told.append
     monkeypatch.setattr(browser, "_login", window)
     site_id = browser.add_site("x.com")
-    told = []
-    browser.start_login(site_id, on_done=lambda: told.append("settings"))
-    browser.start_login(site_id, on_done=lambda: told.append("agent"))
+    browser.start_login(site_id)
+    browser.start_login(site_id)
     assert list(browser.logging_in) == [site_id], "one window, however many asked"
     closed.set()
     await asyncio.sleep(0.01)
-    assert told == ["settings", "agent"] and not browser.logging_in
+    assert told == [site_id] and not browser.logging_in
+
+
+async def test_a_login_window_and_an_agent_never_share_a_profile(browser, monkeypatch):
+    import asyncio
+
+    running, peak, contexts = 0, 0, []
+
+    class Page:
+        url = "about:blank"
+
+        async def goto(self, *a, **k):
+            raise RuntimeError("offline")
+
+        async def close(self):
+            pass
+
+    class Context:
+        def __init__(self, headless):
+            self.headless, self.pages, self.on_close = headless, [], None
+
+        def on(self, event, callback):
+            if event == "close":
+                self.on_close = callback
+
+        async def route(self, *a):
+            pass
+
+        async def route_web_socket(self, *a):
+            pass
+
+        async def new_page(self):
+            return Page()
+
+        async def close(self):
+            nonlocal running
+            running -= 1
+            if self.on_close:
+                self.on_close(None)
+
+    async def launch(pw, site_id, headless):
+        nonlocal running, peak
+        await asyncio.sleep(0.05)  # Chrome takes a moment to start
+        running += 1
+        peak = max(peak, running)
+        contexts.append(Context(headless))
+        return contexts[-1]
+
+    async def nothing(*a):
+        return None
+
+    monkeypatch.setattr(browser, "_launch_profile", launch)
+    monkeypatch.setattr(browser, "_playwright", nothing)
+    monkeypatch.setattr(browser, "_dress", nothing)
+    site_id = browser.add_site("x.com")
+    browser.db.insert("agent_sites", agent_id=7, site_id=site_id)
+
+    opening = asyncio.create_task(browser.open(1, 7, "https://x.com/"))
+    await asyncio.sleep(0.01)  # the agent's Chrome is starting
+    browser.start_login(site_id)
+    with pytest.raises(BrowserError):
+        await opening
+    await asyncio.sleep(0.2)
+    assert [c.headless for c in contexts] == [True, False], "the agent's Chrome, then the login window"
+    assert peak == 1, "never two Chromes on one profile"
+    with pytest.raises(BrowserError, match="logging in"):
+        await browser.open(2, 7, "https://x.com/")
+
+    await contexts[-1].close()  # the user closes the login window
+    await asyncio.sleep(0.01)
+    assert not browser.logging_in

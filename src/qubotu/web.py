@@ -1,6 +1,7 @@
 """FastAPI app: server-rendered pages, htmx fragments, and a server-sent events stream."""
 
 import asyncio
+import hmac
 import json
 import re
 from contextlib import asynccontextmanager
@@ -14,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from markdown_it import MarkdownIt
 from markupsafe import Markup
 
+from . import config
 from .browser import normalize_host
 from .db import parse_ts
 from .engine import PROVIDERS, Engine
@@ -85,8 +87,22 @@ def local_only(request: Request) -> str | None:
     return None
 
 
-def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
+KEY_COOKIE = "qubotu_key"
+LOCKED_PAGE = """<!doctype html><meta charset="utf-8"><title>Qubotu</title>
+<body style="font-family: system-ui, sans-serif; max-width: 34rem; margin: 15vh auto; padding: 0 16px; line-height: 1.5">
+<h1>Open Qubotu from a terminal</h1>
+<p>Run <code>qubotu open</code>. You only need to do this once in each browser.</p>
+<p>Qubotu asks for this so that agents running on your computer can't use its controls.</p>
+</body>"""
+
+
+def _same(given: str, key: str) -> bool:
+    return hmac.compare_digest(given.encode(), key.encode())
+
+
+def create_app(engine: Engine | None = None, scheduler: bool = True, ui_key: str | None = None) -> FastAPI:
     engine = engine or Engine()
+    ui_key = ui_key or config.ui_key()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -100,6 +116,16 @@ def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
     async def refuse_foreign_requests(request: Request, call_next):
         if reason := local_only(request):
             return PlainTextResponse(reason, status_code=403)
+        path = request.url.path
+        if path.startswith("/static/") or path == "/favicon.ico":
+            return await call_next(request)
+        given = request.query_params.get("key")
+        if request.method == "GET" and given is not None and _same(given, ui_key):
+            response = RedirectResponse(path, status_code=303)
+            response.set_cookie(KEY_COOKIE, ui_key, max_age=10 * 365 * 24 * 3600, httponly=True, samesite="strict")
+            return response
+        if not _same(request.cookies.get(KEY_COOKIE, ""), ui_key):
+            return HTMLResponse(LOCKED_PAGE, status_code=401)
         return await call_next(request)
     app.state.engine = engine
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -131,6 +157,7 @@ def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
         if not agent:
             raise HTTPException(404, "Agent not found")
         agent["state"] = engine.status(agent)
+        agent["blocked"] = engine.is_blocked(agent_id)
         return agent
 
     def sidebar_agents() -> list[dict]:
@@ -140,6 +167,7 @@ def create_app(engine: Engine | None = None, scheduler: bool = True) -> FastAPI:
         )
         for a in rows:
             a["state"] = engine.status(a)
+            a["blocked"] = engine.is_blocked(a["id"])
         return rows
 
     def attention() -> list[dict]:

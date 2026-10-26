@@ -1,6 +1,6 @@
 <header class="page-head agent-head">
   <div>
-    <h1><span class="dot dot-{{ agent.state }}"></span> {{ agent.name }} <span class="pill pill-{{ agent.state }}">{{ agent.state }}</span></h1>
+    <h1><span class="dot dot-{{ agent.state }}"></span> {{ agent.name }} <span class="pill pill-{{ agent.state }}">{{ agent.state }}</span>{% if agent.blocked %} <span class="pill pill-blocked">blocked</span>{% endif %}</h1>
     <p class="muted">{{ agent.specialty or "No job set" }}</p>
     <p class="muted small">
       {{ agent.provider }}{% if agent.model %} · {{ agent.model }}{% endif %}

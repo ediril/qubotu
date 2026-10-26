@@ -7,6 +7,10 @@ Versions are `<major>.<work-day>.<increment>` (see the README), so each work day
 - **Blocked agents stand out.** When an agent can't go on without you, a red bar at the top of every page says so, with the action right there. The agent shows **blocked** in the sidebar, and the browser tab's title counts blocked requests. Findings and other things that can wait stay in the Shared tab.
 - **Agents can ask you to log in.** An agent that hits a login wall asks you to log in to that site. One click opens the Chrome window, or lets the agent use a login you already have, and the agent carries on once you're done.
 - **Agents mark questions as blocking** only when they can't go on without the answer. Other questions wait in the Shared tab.
+- **Agents can't use Qubotu's controls.** Qubotu now answers only browsers holding its key, which `qubotu open` hands over once per browser. Before, an agent's shell could call the UI and, for example, grant itself a site's login.
+- **Logged-in sites are stricter.** No POST, PUT, or DELETE to any host (a site's API often lives on another domain), no WebSockets, no logout links, no pages from other sites after a redirect, and no service workers, even from the login window. Agents can't browse local or private addresses.
+- **Logins resolve per site.** Closing a site's login window, from Settings or from a request, answers every agent waiting on that site. Only agents you approved, or that already had the site, get it, and only once the window closes, so declining or a failed window grants nothing. A request for `mobile.x.com` uses your `x.com` login.
+- **Blocked shows next to run state,** so a blocked agent that's running or queued still shows **Stop run**. The red bar quotes the agent's reason as its own words, and names the site a new login would open. Unticking a site closes the agent's tabs on it.
 
 ## First public release (2026-10-25)
 

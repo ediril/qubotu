@@ -224,8 +224,8 @@ def test_profile_denies_the_data_folder_wherever_it_lives(tmp_path, monkeypatch)
 def test_reading_outputs_changes_nothing_and_marking_seen_needs_our_origin(engine):
     aid = engine.create_agent(name="Scout", specialty="", goals="", provider="openai", model="", schedule_minutes=0)
     oid = engine.db.insert("outputs", agent_id=aid, kind="finding", title="F", importance="high", created_at=now(), updated_at=now())
-    app = create_app(engine, scheduler=False)
-    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+    app = create_app(engine, scheduler=False, ui_key="k")
+    with TestClient(app, base_url="http://127.0.0.1:8765", cookies={"qubotu_key": "k"}) as c:
         c.get(f"/agents/{aid}/outputs", headers={"Sec-Fetch-Site": "cross-site", "Origin": "http://evil.example"})
         assert engine.db.one("SELECT status FROM outputs WHERE id = ?", oid)["status"] == "new"
         assert c.post(f"/agents/{aid}/outputs/seen", headers={"Origin": "http://evil.example"}).status_code == 403

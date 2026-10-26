@@ -1,11 +1,18 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from qubotu.db import now
 from qubotu.web import create_app
 
 
+KEY = "test-key"
+
+
 def client(engine):
-    return TestClient(create_app(engine, scheduler=False), base_url="http://127.0.0.1:8765")
+    c = TestClient(create_app(engine, scheduler=False, ui_key=KEY), base_url="http://127.0.0.1:8765")
+    c.cookies.set("qubotu_key", KEY)
+    return c
 
 
 def test_pages_render(engine):
@@ -78,10 +85,10 @@ def test_space_page_is_gone(engine):
 
 
 def test_foreign_hosts_and_origins_are_refused(engine):
-    app = create_app(engine, scheduler=False)
-    with TestClient(app, base_url="http://attacker.example:8765") as c:
+    app = create_app(engine, scheduler=False, ui_key=KEY)
+    with TestClient(app, base_url="http://attacker.example:8765", cookies={"qubotu_key": KEY}) as c:
         assert c.get("/").status_code == 403, "DNS rebinding: a foreign Host header is refused"
-    with TestClient(app, base_url="http://127.0.0.1:8765") as c:
+    with TestClient(app, base_url="http://127.0.0.1:8765", cookies={"qubotu_key": KEY}) as c:
         evil = c.post("/agents", data={"name": "Evil", "goals": "x"}, headers={"Origin": "http://attacker.example"})
         assert evil.status_code == 403
         other_port = c.post("/agents", data={"name": "Evil", "goals": "x"}, headers={"Origin": "http://127.0.0.1:3000"})
@@ -91,7 +98,7 @@ def test_foreign_hosts_and_origins_are_refused(engine):
         assert engine.db.agents() == []
         ok = c.post("/agents", data={"name": "Mine", "goals": "x"}, headers={"Origin": "http://127.0.0.1:8765"}, follow_redirects=False)
         assert ok.status_code == 303
-    with TestClient(app, base_url="http://localhost:8765") as c:
+    with TestClient(app, base_url="http://localhost:8765", cookies={"qubotu_key": KEY}) as c:
         assert c.get("/").status_code == 200
 
 
@@ -139,9 +146,32 @@ def test_blockers_show_on_every_page_apart_from_notifications(engine):
             assert "needs you to log in to <strong>x.com</strong>" in page, path
             assert "<title>(1) " in page, path
         assert "badge-blocked" in c.get("/partials/sidebar").text
+        engine.runs[aid].append(SimpleNamespace(running=False))  # queued: the blocker doesn't hide the run, nor the run the blocker
+        header = c.get(f"/agents/{aid}/header").text
+        assert "pill-blocked" in header and "Stop run" in header
         dashboard = c.get("/partials/dashboard").text
         assert "A finding" in dashboard and "Log in to x.com" not in dashboard, "blockers aren't mixed in with findings"
 
         [b] = engine.blockers()
         assert c.post(f"/outputs/{b['id']}/decline").status_code == 204
         assert "is blocked" not in c.get("/partials/blockers").text
+
+
+def test_only_a_browser_holding_the_key_can_use_qubotu(engine):
+    app = create_app(engine, scheduler=False, ui_key=KEY)
+    with TestClient(app, base_url="http://127.0.0.1:8765") as agent:
+        # What an agent's shell can do: same machine, our own origin, but no key.
+        own = {"Origin": "http://127.0.0.1:8765"}
+        assert agent.get("/").status_code == 401 and "qubotu open" in agent.get("/").text
+        assert agent.post("/agents", data={"name": "Evil", "goals": "x"}, headers=own).status_code == 401
+        assert agent.post("/sites", data={"host": "x.com"}, headers=own).status_code == 401
+        assert agent.get("/?key=wrong", follow_redirects=False).status_code == 401
+        assert engine.db.agents() == []
+        assert agent.get("/static/app.css").status_code == 200
+
+    with TestClient(app, base_url="http://127.0.0.1:8765") as browser:
+        r = browser.get(f"/?key={KEY}", follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/", "the key leaves the address bar"
+        cookie = r.headers["set-cookie"].lower()
+        assert "httponly" in cookie and "samesite=strict" in cookie
+        assert browser.get("/").status_code == 200, "the cookie keeps the browser in"

@@ -60,9 +60,14 @@ def serve(port: int, open_browser: bool, wait: bool = False) -> None:
 
     server.handle_exit = on_exit
     if open_browser:
-        webbrowser.open(f"http://{config.HOST}:{port}")
-    print(f"Qubotu is running at http://{config.HOST}:{port}  (Ctrl-C to stop)")
+        webbrowser.open(config.ui_url(port))
+    print(f"Qubotu is running at http://{config.HOST}:{port}. Open it with: qubotu open  (Ctrl-C to stop)")
     server.run()
+
+
+def open_ui(port: int) -> None:
+    config.ensure_dirs()
+    webbrowser.open(config.ui_url(port))
 
 
 def service_install(port: int) -> None:
@@ -86,7 +91,7 @@ def service_install(port: int) -> None:
         plistlib.dump(plist, f)
     subprocess.run(["launchctl", "load", str(PLIST)], check=True)
     print(f"Installed {PLIST}")
-    print(f"Qubotu now starts at login: http://{config.HOST}:{port}  (log: {config.LOG_PATH})")
+    print(f"Qubotu now starts at login. Open it with: qubotu open  (log: {config.LOG_PATH})")
 
 
 def service_uninstall() -> None:
@@ -108,12 +113,16 @@ def main() -> None:
     p_serve.add_argument("--port", type=int, default=config.PORT)
     p_serve.add_argument("--open", action="store_true", help="Open the UI in the browser.")
     p_serve.add_argument("--wait", action="store_true", help="If Qubotu is already running, wait for it to stop.")
+    p_open = sub.add_parser("open", help="Open Qubotu in your browser.")
+    p_open.add_argument("--port", type=int, default=config.PORT)
     p_service = sub.add_parser("service", help="Manage the login service (macOS launchd).")
     p_service.add_argument("action", choices=["install", "uninstall"])
     p_service.add_argument("--port", type=int, default=config.PORT)
     args = parser.parse_args()
 
-    if args.command == "service":
+    if args.command == "open":
+        open_ui(args.port)
+    elif args.command == "service":
         if args.action == "install":
             service_install(args.port)
         else:

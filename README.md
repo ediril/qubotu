@@ -60,7 +60,7 @@ To upgrade, run the installer again, or `uv tool upgrade qubotu`.
 
 ## Using Qubotu
 
-Open **http://127.0.0.1:8765**. If you didn't set up the login service, start Qubotu first with `qubotu serve --open`, and stop it with Ctrl-C.
+Open Qubotu with `qubotu open`. If you didn't set up the login service, start it first with `qubotu serve --open`, and stop it with Ctrl-C. You need `qubotu open` only once in each browser: it gives the browser a key, kept in a cookie, so that agents running on your computer can't use Qubotu's controls. After that, **http://127.0.0.1:8765** works directly.
 
 ### Create an agent
 Click **+ New** in the sidebar and fill in:
@@ -86,7 +86,7 @@ What your agents have learned about you, plus anything you add yourself. Every a
 ### Sites agents can use as you
 Some sites only show content to logged-in users, such as an X list. In **Settings**, enter the site (for example `x.com`) and click **Log in**. A Chrome window opens: log in as usual, then close it. Then open an agent's settings and tick the site under **Sites it can use as you**.
 
-Agents browse those sites logged in as you, but read-only: Qubotu blocks anything that would post, like, or change something there. Each site has its own Chrome profile, which only that site's pages use, and agents never see your password. Consider a separate account for agents, because some sites (X among them) watch for automated browsing.
+Agents browse those sites logged in as you, but read-only: Qubotu blocks anything that would post, like, send a message, or log out. Each site has its own Chrome profile, which only that site's pages use, and agents never see your password. Consider a separate account for agents, because some sites (X among them) watch for automated browsing.
 
 ### Dashboard
 Questions and important outputs waiting for you, each agent's status and next run, recent outputs, and recent collaboration. Blockers show in the bar at the top instead.
@@ -94,6 +94,7 @@ Questions and important outputs waiting for you, each agent's status and next ru
 ## Running Qubotu
 
 ```sh
+qubotu open [--port N]             # open Qubotu in your browser
 qubotu serve [--open] [--port N]   # run in the foreground
 qubotu service install             # start at login (macOS); restarts it if already installed
 qubotu service uninstall           # stop starting at login
@@ -120,14 +121,15 @@ Set `QUBOTU_HOME` to use a different folder, or `QUBOTU_PORT` for a different po
 
 ## How it works
 
-- **Local daemon.** One Python process (FastAPI, SQLite, Jinja, and htmx) runs the agents and serves the UI. Only one runs per data folder. It answers only requests addressed to `127.0.0.1` or `localhost`, and only state-changing requests from its own pages, so other websites can't drive your agents. The data folder is readable by your account only.
+- **Local daemon.** One Python process (FastAPI, SQLite, Jinja, and htmx) runs the agents and serves the UI. Only one runs per data folder. It answers only requests addressed to `127.0.0.1` or `localhost`, only state-changing requests from its own pages, so other websites can't drive your agents, and only browsers holding the key in `~/.qubotu/ui.key`. `qubotu open` hands the browser that key once, and an HttpOnly cookie keeps it. Agents can reach `127.0.0.1` but can't read the data folder, so they can't use the UI's controls, such as granting themselves a site's login. The data folder is readable by your account only.
 - **Agents.** Each agent runs on Codex app-server in its own persistent thread, with its own working folder. It can search the web and use the network. Its commands run under a Codex permission profile: they can read the system and write only their own folder and temp files, and they can't read your home folder (only `~/.gitconfig`, which git needs). So an agent can't read Qubotu's database, your Codex login, SSH keys, or the Keychain, even if a web page tries to talk it into it. Codex doesn't ask for approvals. Fireworks models use a custom Codex provider.
 - **Runs.** Everything that makes an agent run (a chat message, its schedule, Run now, your answer to its question, a request from another agent) is first saved to an inbox, so work accepted before a restart still happens after it. Runs for one agent queue behind each other, and at most three agents run at once. Stop interrupts the running turn and cancels the queued ones. A turn that runs past 30 minutes is interrupted.
 - **Tools.** Qubotu gives agents its own tools as Codex dynamic tools, an experimental app-server feature: `share_output` and `list_shared`, `ask_user`, `request_help`, and the memory tools. Codex fixes a thread's tools when it starts, so when the tool set changes, agents move to fresh threads. Their chat log, outputs, notes, and memory carry over.
 - **Context.** Each run starts with only what changed since the agent's last run: its job (if edited), the team roster, the shared memory profile, and your feedback on its outputs. When Codex compacts a thread, the full context is sent again on the next run. Each run also includes older memories that match its message, beyond the pinned and most recent ones in the profile.
 - **Collaboration.** `request_help` runs the other agent and delivers the result back to the requester. The request shows up in the helper's chat, and the dashboard lists recent requests. Requests chain at most two hops.
 - **Shared memory.** SQLite rows with local embeddings (fastembed, `bge-small-en-v1.5`), recalled by combining numpy cosine similarity with FTS5 keyword search. Agents decide what to remember. Memory sits behind a small interface so a dedicated memory system can replace it later.
-- **Browser.** The daemon drives Google Chrome with Playwright; agents only get page tools (`open_page`, `read_page`, `scroll_page`, `click_element`, `type_into`). Each run has one tab, closed when the run ends. Logged-out browsing uses a fresh context per run. A site the user connects gets a persistent profile under the data folder, which agents can't read. That profile is used only for its own site: navigations elsewhere are cancelled, and requests other than GET, HEAD, and OPTIONS to the site are blocked, except Cloudflare's bot check. Reads wait until the page's text stops changing, and `scroll_page` returns only text that wasn't there before, so feeds that drop old posts (like X) still read in full. Headless Chrome uses a normal Chrome user agent, because some sites refuse the headless one.
+- **Browser.** The daemon drives Google Chrome with Playwright; agents only get page tools (`open_page`, `read_page`, `scroll_page`, `click_element`, `type_into`). Each run has one tab, closed when the run ends. Logged-out browsing uses a fresh context for each page opened. A site the user connects gets a persistent profile under the data folder, which agents can't read. In that profile, every request other than GET, HEAD, and OPTIONS is blocked, to any host (except Cloudflare's bot check); WebSockets are closed; logout links aren't followed; a page that ends up on another site, for example after a redirect, is cleared instead of shown; and service workers are blocked, in the login window too. GET requests are trusted to be reads. No browsing reaches local or private addresses. One lock per site serializes starting and stopping Chrome on its profile, so a login window and an agent's tab never share it. Reads wait until the page's text stops changing, and `scroll_page` returns only text that wasn't there before, so feeds that drop old posts (like X) still read in full. Pages carry the user's Chrome identity, and agents browse at a person's pace.
+- **Blockers.** A login request (`ask_to_log_in`) or a question marked blocking is a blocker, shown on every page. Clicking **Log in** marks the request approved and opens the login window. When any login window for a site closes, wherever it was opened from, every request waiting on that site is answered, and the site is granted to agents whose request the user approved or that already had it.
 
 See [CHANGELOG.md](CHANGELOG.md) for what's been built and why, and [TODO.md](TODO.md) for what's planned.
 
