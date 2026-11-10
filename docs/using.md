@@ -1,0 +1,10 @@
+# Using Qubotu
+
+Start Qubotu as in the README's [Quick start](../README.md#quick-start). This page covers each part of the UI.
+
+- **New agent.** Click **+ New** and give it a **Name** (no spaces, since other agents ask for help by name) and a **Job**: what to keep working on, what you want to see, and what to skip. The job's first line is the summary other agents see. An agent uses your Codex default model and runs once a day unless you change that under **Model and schedule**. Fireworks models need an ID such as `accounts/fireworks/models/...`.
+- **An agent's tabs.** **Chat** to talk to it, with its commands and tool calls streaming in live. **Shared** for its findings, reports, drafts, and questions: answer them, mark outputs **Useful** or **Not useful** (it sees your feedback on its next run), and clear them with **Done** or **Dismiss**. **Settings** for its job, model, schedule, and recent runs, a fresh thread if its context gets muddled, or deleting it. The header has **Run now**, **Stop run**, **Pause**, and **Resume**.
+- **Blockers.** When an agent can't go on without you, such as a login or a question it must have answered, a red bar on every page shows the action. The agent shows **blocked** in the sidebar, and the tab title counts blockers. Once you act, it carries on.
+- **Shared memory.** What agents have learned about you, plus anything you add. Every agent reads it. Edit or remove anything that's wrong. Pinned memories go with every run.
+- **Sites agents can use as you.** For sites that need a login, such as an X list. In **Settings**, enter the site (say `x.com`) and click **Log in**, log in in the Chrome window that opens, and close it. Then tick the site in an agent's settings under **Sites it can use as you**. Agents browse it read-only: Qubotu blocks posting, liking, messaging, and logging out, and agents never see your password. Consider a separate account for agents, since some sites (X among them) watch for automated browsing.
+- **Dashboard.** What's waiting for you, each agent's status and next run, and recent outputs and collaboration.

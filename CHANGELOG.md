@@ -1,6 +1,6 @@
 # Changelog
 
-Versions are `<major>.<work-day>.<increment>` (see the README), so each work day below is one minor version.
+Versions are `<major>.<work-day>.<increment>` (see [docs/development.md](docs/development.md)), so each work day below is one minor version.
 
 ## Unreleased
 
